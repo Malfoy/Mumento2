@@ -1,0 +1,54 @@
+[package]
+name = "ggcat_io"
+version = "2.2.0"
+authors = ["Andrea Cracco <guilucand@gmail.com>"]
+edition = "2024"
+categories = []
+description = "GGCAT io crate"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/algbio/ggcat"
+
+[dependencies]
+helicase = { path = "../../../vendor/helicase", features = ["xz"] }
+
+# Config
+config = { package = "ggcat_config", path = "../config" }
+utils = { package = "ggcat_utils", path = "../utils" }
+
+
+# Common libraries
+parallel-processor = "0.2.7"
+streaming-libdeflate-rs = "0.2.4"
+nightly-quirks = "0.1.4"
+
+# Pipeline libraries
+hashes = { package = "ggcat_hashes", path = "../hashes" }
+
+parking_lot = "0.12.3"
+byteorder = "1.5.0"
+lz4 = "1.25.0"
+bzip2 = "0.4.4"
+zstd = "0.13.2"
+flate2 = "1.0.30"
+crc32fast = "1.4"
+bstr = "1.9.1"
+ggcat-logging = { version = "2.2.0", path = "../logging" }
+anyhow = "1.0.89"
+dynamic-dispatch = "0.5.4"
+rustc-hash = "2.1.1"
+bincode = "2.0.1"
+typenum = "1.18.0"
+bitbound = "0.1.0"
+serde = "1.0.228"
+deko = "0.6.0"
+tar = "0.4"
+liblzma = "0.4.7"
+memchr = "2.8.2"
+maligned = "0.2.1"
+
+[dev-dependencies]
+rand = "0.8.5"
+
+
+[features]
+support_kmer_counters = []

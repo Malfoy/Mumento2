@@ -1,0 +1,9 @@
+target
+.idea
+.vscode
+working-dir/
+
+# Files for testingm
+*.fa
+*.log
+__pycache__/

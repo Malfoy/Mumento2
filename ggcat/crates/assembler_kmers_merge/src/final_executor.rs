@@ -1,0 +1,531 @@
+use crate::map_processor::ParallelKmersMergeMapPacket;
+use crate::unitigs_extender::sorting::SortingExtender;
+use crate::unitigs_extender::{UnitigExtensionColorsData, UnitigsExtenderTrait};
+use crate::{GlobalMergeData, ParallelKmersMergeFactory};
+use colors::colors_manager::color_types::PartialUnitigsColorStructure;
+use colors::colors_manager::{ColorsManager, MinimizerBucketingSeqColorDataIterable, color_types};
+use colors::colors_manager::{ColorsMergeManager, present_in_all_colors};
+use config::{
+    DEFAULT_OUTPUT_BUFFER_SIZE, DEFAULT_PER_CPU_BUFFER_SIZE, READ_FLAG_INCL_BEGIN,
+    READ_FLAG_INCL_END,
+};
+use ggcat_logging::stats;
+use hashes::extremal::{DelayedHashComputation, HashGenerator};
+use hashes::{ExtendableHashTraitType, HashFunctionFactory, HashableSequence};
+use instrumenter::local_setup_instrumenter;
+use io::compressed_read::{CompressedRead, CompressedReadIndipendent};
+use io::concurrent::temp_reads::creads_utils::{
+    AlignToMinimizerByteBoundary, AssemblerMinimizerPosition, CompressedReadsBucketData,
+    CompressedReadsBucketDataSerializer, DeserializedReadIndependent, NoMultiplicity,
+    NoSecondBucket, ToReadData, WithMultiplicity,
+};
+use io::concurrent::temp_reads::extra_data::{SequenceExtraDataTempBufferManagement, TempBuffer};
+use io::memstorage::memstorage_decode_reads;
+use io::partial_unitigs_extra_data::{
+    HASH_ENDING_FLAG_MASK, OTHER_END_FLAG_MASK, PartialUnitigExtraData, PartialUnitigMode,
+};
+use kmers_transform::{KmersTransformExecutorFactory, KmersTransformFinalExecutor};
+use parallel_processor::buckets::concurrent::{BucketsThreadBuffer, BucketsThreadDispatcher};
+use parallel_processor::buckets::writers::compressed_binary_writer::CompressedBinaryWriter;
+use parallel_processor::execution_manager::packet::Packet;
+use sequence_output::structured_sequences::StructuredSequenceBackendWrapper;
+use sequence_output::structured_sequences::concurrent::FastaWriterConcurrentBuffer;
+use std::marker::PhantomData;
+use std::ops::DerefMut;
+use std::slice::from_raw_parts;
+use std::sync::Arc;
+use typenum::U4;
+
+local_setup_instrumenter!();
+
+pub struct ParallelKmersMergeFinalExecutor<
+    MH: HashFunctionFactory,
+    CX: ColorsManager,
+    OM: StructuredSequenceBackendWrapper,
+    const COMPUTE_SIMPLITIGS: bool,
+> {
+    unitigs_tmp: BucketsThreadDispatcher<
+        CompressedBinaryWriter,
+        CompressedReadsBucketDataSerializer<
+            PartialUnitigExtraData<color_types::PartialUnitigsColorStructure<CX>>,
+            NoSecondBucket,
+            NoMultiplicity,
+            AssemblerMinimizerPosition,
+            U4,
+            AlignToMinimizerByteBoundary,
+        >,
+    >,
+
+    colors_data: UnitigExtensionColorsData<CX>,
+    _phantom: PhantomData<(MH, OM)>,
+}
+
+impl<
+    MH: HashFunctionFactory,
+    CX: ColorsManager,
+    OM: StructuredSequenceBackendWrapper,
+    const COMPUTE_SIMPLITIGS: bool,
+> ParallelKmersMergeFinalExecutor<MH, CX, OM, COMPUTE_SIMPLITIGS>
+{
+    pub fn new(global_data: &GlobalMergeData<CX, OM>) -> Self {
+        let unitigs_out_buffer = BucketsThreadBuffer::new(
+            DEFAULT_PER_CPU_BUFFER_SIZE,
+            &global_data.sequential_partitions_count,
+        );
+
+        Self {
+            unitigs_tmp: BucketsThreadDispatcher::new(
+                &global_data.output_results_buckets,
+                unitigs_out_buffer,
+                global_data.k,
+            ),
+            colors_data: UnitigExtensionColorsData {
+                colors_global_table: global_data.colors_global_table.clone(),
+                unitigs_temp_colors: CX::ColorsMergeManagerType::alloc_unitig_color_structure(),
+                temp_color_buffer:
+                    PartialUnitigExtraData::<PartialUnitigsColorStructure<CX>>::new_temp_buffer(),
+            },
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// static DEBUG_MAPS_HOLDER: Mutex<Vec<Box<dyn Any + Sync + Send>>> = const_mutex(Vec::new());
+
+impl<
+    MH: HashFunctionFactory,
+    CX: ColorsManager,
+    OM: StructuredSequenceBackendWrapper,
+    const COMPUTE_SIMPLITIGS: bool,
+> ParallelKmersMergeFinalExecutor<MH, CX, OM, COMPUTE_SIMPLITIGS>
+{
+    #[inline]
+    fn output_sequence<'a, H: HashGenerator<MH>>(
+        lonely_circular_unitigs: Option<
+            &mut FastaWriterConcurrentBuffer<'a, CX, (), OM::Backend<CX, ()>>,
+        >,
+        lonely_unitigs: &mut FastaWriterConcurrentBuffer<'a, CX, (), OM::Backend<CX, ()>>,
+        unitigs_tmp: &mut BucketsThreadDispatcher<
+            CompressedBinaryWriter,
+            CompressedReadsBucketDataSerializer<
+                PartialUnitigExtraData<color_types::PartialUnitigsColorStructure<CX>>,
+                NoSecondBucket,
+                NoMultiplicity,
+                AssemblerMinimizerPosition,
+                U4,
+                AlignToMinimizerByteBoundary,
+            >,
+        >,
+        colors_data: &mut UnitigExtensionColorsData<CX>,
+        out_seq: CompressedRead<'_>,
+        forward_linked: Option<H>,
+        backward_linked: Option<H>,
+        k: usize,
+        is_circular: bool,
+        #[cfg(feature = "support_kmer_counters")]
+        counters: io::partial_unitigs_extra_data::SequenceAbundance,
+    ) {
+        let colors = color_types::ColorsMergeManagerType::<CX>::encode_part_unitigs_colors(
+            &mut colors_data.unitigs_temp_colors,
+            &mut colors_data.temp_color_buffer.0,
+        );
+
+        if is_circular && let Some(lonely_circular_unitigs) = lonely_circular_unitigs {
+            lonely_circular_unitigs.add_read(
+                out_seq,
+                None,
+                PartialUnitigExtraData {
+                    colors,
+                    mode: PartialUnitigMode::Inline,
+                    #[cfg(feature = "support_kmer_counters")]
+                    counters,
+                },
+                &colors_data.temp_color_buffer,
+                (),
+                &(),
+                None,
+            );
+        } else if forward_linked.is_none() && backward_linked.is_none() {
+            lonely_unitigs.add_read(
+                out_seq,
+                None,
+                PartialUnitigExtraData {
+                    colors,
+                    mode: PartialUnitigMode::Inline,
+                    #[cfg(feature = "support_kmer_counters")]
+                    counters,
+                },
+                &colors_data.temp_color_buffer,
+                (),
+                &(),
+                None,
+            );
+        } else {
+            let extra_data = PartialUnitigExtraData {
+                colors,
+                #[cfg(feature = "support_kmer_counters")]
+                counters,
+                mode: PartialUnitigMode::Inline,
+            };
+
+            let both_ends = forward_linked.is_some() && backward_linked.is_some();
+
+            let (left_bucket, left_should_rc) = backward_linked
+                .map(|hash| {
+                    let hash = hash.get_extremal_hash(out_seq, k, true);
+                    (
+                        MH::get_bucket(
+                            0,
+                            unitigs_tmp.get_buckets_count().normal_buckets_count_log,
+                            hash.to_unextendable(),
+                        ),
+                        !hash.is_forward(),
+                    )
+                })
+                .unwrap_or((u16::MAX, false));
+            let (right_bucket, right_should_rc) = forward_linked
+                .map(|hash| {
+                    let hash = hash.get_extremal_hash(out_seq, k, false);
+                    (
+                        MH::get_bucket(
+                            0,
+                            unitigs_tmp.get_buckets_count().normal_buckets_count_log,
+                            hash.to_unextendable(),
+                        ),
+                        !hash.is_forward(),
+                    )
+                })
+                .unwrap_or((u16::MAX, true));
+
+            // Always put the unitig in the smallest bucket
+            let (bucket, should_rc, hash_beginning) = if left_bucket <= right_bucket {
+                (left_bucket, left_should_rc, true)
+            } else {
+                (right_bucket, right_should_rc, false)
+            };
+
+            let last_align = if hash_beginning ^ should_rc {
+                0
+            } else {
+                (out_seq.bases_count() - k) % 4
+            };
+
+            // println!(
+            //     "Unitig: seq={}, bucket={}, should_rc={}, hash_beginning={}, last_align={}, both_ends={}, left_bucket={}, right_bucket={}",
+            //     out_seq.debug_to_string(),
+            //     bucket,
+            //     should_rc,
+            //     hash_beginning,
+            //     last_align,
+            //     both_ends,
+            //     left_bucket,
+            //     right_bucket
+            // );
+
+            unitigs_tmp.add_element_extended(
+                bucket,
+                &extra_data,
+                &colors_data.temp_color_buffer,
+                &CompressedReadsBucketData {
+                    read: out_seq.to_read_data().reverse_complement(should_rc),
+                    multiplicity: 0,
+                    minimizer_pos: last_align as u16,
+                    extra_bucket: 0,
+                    flags: if !hash_beginning ^ should_rc {
+                        HASH_ENDING_FLAG_MASK
+                    } else {
+                        0
+                    } | if both_ends { OTHER_END_FLAG_MASK } else { 0 },
+                },
+            );
+        }
+        color_types::PartialUnitigsColorStructure::<CX>::clear_temp_buffer(
+            &mut colors_data.temp_color_buffer.0,
+        );
+    }
+}
+
+#[inline(always)]
+pub fn check_problematic_self_complemental_kmer<MH: HashFunctionFactory>(
+    k: usize,
+    kmer: &CompressedRead<'_>,
+    action_on_match: impl FnOnce(bool, bool),
+) {
+    // Problematic read:
+    debug_assert_eq!(k % 2, 0);
+
+    let hash_bw = HashGenerator::<MH>::get_extremal_hash(&DelayedHashComputation, *kmer, k, true);
+    let hash_fw = HashGenerator::<MH>::get_extremal_hash(&DelayedHashComputation, *kmer, k, false);
+
+    // - self complemental
+    if hash_bw.is_rc_symmetric() || hash_fw.is_rc_symmetric() {
+        action_on_match(hash_bw.is_rc_symmetric(), hash_fw.is_rc_symmetric());
+    }
+}
+
+impl<
+    MH: HashFunctionFactory,
+    CX: ColorsManager,
+    OM: StructuredSequenceBackendWrapper,
+    const COMPUTE_SIMPLITIGS: bool,
+> KmersTransformFinalExecutor<ParallelKmersMergeFactory<MH, CX, OM, COMPUTE_SIMPLITIGS>>
+    for ParallelKmersMergeFinalExecutor<MH, CX, OM, COMPUTE_SIMPLITIGS>
+{
+    type MapStruct = ParallelKmersMergeMapPacket<MH, CX, OM>;
+
+    #[instrumenter::track(fields(map_capacity = map_struct_packet.rhash_map.capacity(), map_size = map_struct_packet.rhash_map.len()))]
+    fn process_map<const EVEN_K: bool>(
+        &mut self,
+        global_data: &Arc<<ParallelKmersMergeFactory<MH, CX, OM, COMPUTE_SIMPLITIGS> as KmersTransformExecutorFactory>::GlobalExtraData>,
+        mut map_struct_packet: Packet<Self::MapStruct>,
+    ) -> Packet<Self::MapStruct> {
+        stats!(
+            map_struct_packet.detailed_stats.start_finalize_time = ggcat_logging::get_stat_opt!(stats.start_time).elapsed().into();
+            let mut stat_output_kmers_count = 0;
+        );
+
+        let map_struct = map_struct_packet.deref_mut();
+
+        let mut tmp_final_unitigs_buffer = FastaWriterConcurrentBuffer::new(
+            &global_data.final_unitigs_file,
+            DEFAULT_OUTPUT_BUFFER_SIZE,
+            true,
+            global_data.k,
+        );
+
+        let mut tmp_circular_final_unitigs_buffer = global_data
+            .final_circular_unitigs_file
+            .as_ref()
+            .map(|final_circular_unitigs_file| {
+                FastaWriterConcurrentBuffer::new(
+                    final_circular_unitigs_file,
+                    DEFAULT_OUTPUT_BUFFER_SIZE,
+                    true,
+                    global_data.k,
+                )
+            });
+
+        let mut sorting_extender = SortingExtender::<CX>::default();
+        let mut single_entry_colors = vec![];
+
+        if !map_struct.is_duplicate && !map_struct.is_outlier && !map_struct.force_hashmap {
+            let mut process_fn = |minimizer_elements: &mut [DeserializedReadIndependent<<
+                ParallelKmersMergeFactory<MH, CX, OM, false> as KmersTransformExecutorFactory>::AssociatedExtraDataWithMultiplicity>],
+                superkmers_storage: &[u8],
+                superkmers_extra_buffer: &TempBuffer<<ParallelKmersMergeFactory<MH, CX, OM, false> as KmersTransformExecutorFactory>::AssociatedExtraDataWithMultiplicity>| {
+                    if minimizer_elements.len() <= 1
+                    {
+                        if (minimizer_elements[0].multiplicity as usize) < global_data.min_multiplicity {
+                                return;
+                        }
+
+                        if let Some(required) = global_data.required_colors {
+                            single_entry_colors.clear();
+                            single_entry_colors.extend_from_slice(
+                                minimizer_elements[0].extra.get_unique_color(superkmers_extra_buffer),
+                            );
+                            if !present_in_all_colors(
+                                &mut single_entry_colors,
+                                Some(required),
+                            ) {
+                                return;
+                            }
+                        }
+
+                        const BOTH_FLAGS: u8 = READ_FLAG_INCL_BEGIN | READ_FLAG_INCL_END;
+                        if EVEN_K && minimizer_elements[0].flags & BOTH_FLAGS == 0 {
+
+                            check_problematic_self_complemental_kmer::<MH>(
+                                map_struct.k,
+                                &minimizer_elements[0].read.as_reference(superkmers_storage),
+                                |bws, fws| {
+
+                                    let half_pass= minimizer_elements[0].multiplicity as usize / 2 >= global_data.min_multiplicity;
+
+                                    // if kmer is problematic: remove extra bases and trim if half of the multiplicity does not pass the threshold
+                                    if bws && minimizer_elements[0].flags & READ_FLAG_INCL_BEGIN == 0 {
+                                        if !half_pass {
+                                            minimizer_elements[0].read.start += 1;
+                                            minimizer_elements[0].read.size -= 1;
+                                        }
+                                        minimizer_elements[0].flags |= READ_FLAG_INCL_BEGIN;
+                                    }
+
+                                    if fws && minimizer_elements[0].flags & READ_FLAG_INCL_END == 0 {
+                                        if !half_pass {
+                                            minimizer_elements[0].read.size -= 1;
+                                        }
+                                        minimizer_elements[0].flags |= READ_FLAG_INCL_END;
+                                    }
+                                }
+                            );
+                            if minimizer_elements[0].read.bases_count() < map_struct.k {
+                                return;
+                            }
+                        }
+
+                        let read = &minimizer_elements[0];
+                        stats!(
+                            stat_output_kmers_count += 1;
+                        );
+
+                        // Assign color for this entry
+                        if CX::COLORS_ENABLED {
+                            CX::ColorsMergeManagerType::reset_unitig_color_structure(
+                                &mut self.colors_data.unitigs_temp_colors,
+                            );
+
+                            single_entry_colors.clear();
+                            single_entry_colors.extend_from_slice(
+                                read.extra
+                                    .get_unique_color(superkmers_extra_buffer),
+                            );
+                            let color = CX::ColorsMergeManagerType::assign_color(
+                                &self.colors_data.colors_global_table,
+                                &mut single_entry_colors,
+                            );
+                            CX::ColorsMergeManagerType::extend_forward_with_color(
+                                &mut self.colors_data.unitigs_temp_colors,
+                                color,
+                                read.read.bases_count() - global_data.k + 1,
+                            );
+                        }
+
+                        Self::output_sequence(
+                            None,
+                            &mut tmp_final_unitigs_buffer,
+                            &mut self.unitigs_tmp,
+                            &mut self.colors_data,
+                            read.read.as_reference(superkmers_storage),
+                            if read.flags & READ_FLAG_INCL_END == 0 {
+                                Some(DelayedHashComputation)
+                            } else {
+                                None
+                            },
+                            if read.flags & READ_FLAG_INCL_BEGIN == 0 {
+                                Some(DelayedHashComputation)
+                            } else {
+                                None
+                            },
+                            global_data.k,
+                            false,
+                            #[cfg(feature = "support_kmer_counters")]
+                            io::partial_unitigs_extra_data::SequenceAbundance {
+                                first: read.multiplicity as u64,
+                                sum: read.multiplicity as u64
+                                    * (read.read.bases_count() - global_data.k + 1) as u64,
+                                last: read.multiplicity as u64,
+                            },
+                        );
+
+                        return;
+                    }
+
+                    sorting_extender.clear_supertigs();
+                    sorting_extender.process_reads::<MH, COMPUTE_SIMPLITIGS, EVEN_K>(
+                        &mut self.colors_data,
+                        minimizer_elements,
+                        superkmers_extra_buffer,
+                        superkmers_storage,
+                        global_data.k,
+                        global_data.min_multiplicity,
+                        global_data.required_colors,
+                        |colors_data, read, fw_linked, bw_linked, _abundance| {
+                            stats!(
+                                stat_output_kmers_count += 1;
+                            );
+                            Self::output_sequence(
+                                None,
+                                &mut tmp_final_unitigs_buffer,
+                                &mut self.unitigs_tmp,
+                                colors_data,
+                                read,
+                                fw_linked,
+                                bw_linked,
+                                global_data.k,
+                                false,
+                                #[cfg(feature = "support_kmer_counters")]
+                                _abundance,
+                            )
+                        },
+                    );
+                };
+
+            let mut minimizer_elements = vec![];
+
+            let (storage_ptr, storage_size) =
+                map_struct.minimizer_superkmers.get_allocator_storage_ptr();
+            map_struct.minimizer_superkmers.process_elements(
+                #[inline(always)]
+                |minimizer_elements_data| {
+                    minimizer_elements.clear();
+                    let storage = unsafe {
+                        from_raw_parts(storage_ptr, storage_size)
+                    };
+
+                    memstorage_decode_reads::<
+                        <ParallelKmersMergeFactory<MH, CX, OM, false> as KmersTransformExecutorFactory>::AssociatedExtraDataWithMultiplicity,
+                        WithMultiplicity,
+                        AssemblerMinimizerPosition,
+                        false,
+                    >(minimizer_elements_data.as_ptr(), minimizer_elements_data.len(), |element| {
+                        minimizer_elements.push(DeserializedReadIndependent { read: CompressedReadIndipendent::from_read_inplace(&element.read, storage),
+                            extra: element.extra,
+                            multiplicity: element.multiplicity,
+                            minimizer_pos: element.minimizer_pos,
+                            flags: element.flags,
+                            second_bucket: element.second_bucket });
+                    });
+
+                    process_fn(&mut minimizer_elements,
+                        storage,
+                        &map_struct.superkmers_extra_buffer);
+                },
+                true,
+            );
+        } else {
+            let compute_circular = tmp_circular_final_unitigs_buffer.is_some();
+            map_struct.extender.compute_unitigs::<COMPUTE_SIMPLITIGS>(
+                &mut self.colors_data,
+                #[inline(always)]
+                |colors_data, out_seq, fw_hash, bw_hash, is_circular, _abundance| {
+                    stats!(
+                        stat_output_kmers_count += 1;
+                    );
+                    Self::output_sequence(
+                        tmp_circular_final_unitigs_buffer.as_mut(),
+                        &mut tmp_final_unitigs_buffer,
+                        &mut self.unitigs_tmp,
+                        colors_data,
+                        out_seq,
+                        fw_hash,
+                        bw_hash,
+                        global_data.k,
+                        is_circular,
+                        #[cfg(feature = "support_kmer_counters")]
+                        _abundance,
+                    )
+                },
+                compute_circular,
+            );
+        }
+
+        stats!(
+            map_struct_packet.detailed_stats.end_finalize_time = ggcat_logging::get_stat_opt!(stats.start_time).elapsed().into();
+            map_struct_packet.detailed_stats.output_kmers_count = stat_output_kmers_count;
+        );
+
+        stats!(stats.assembler.kmers_merge_stats.push(map_struct_packet.detailed_stats.clone()););
+        tmp_final_unitigs_buffer.finalize(None);
+        tmp_circular_final_unitigs_buffer.map(|b| b.finalize(None));
+
+        map_struct_packet
+    }
+
+    fn finalize(
+        self,
+        _global_data: &<ParallelKmersMergeFactory<MH, CX, OM, COMPUTE_SIMPLITIGS> as KmersTransformExecutorFactory>::GlobalExtraData,
+    ) {
+        self.unitigs_tmp.finalize();
+    }
+}

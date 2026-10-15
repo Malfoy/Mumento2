@@ -1,0 +1,924 @@
+use crate::DefaultColorsSerializer;
+use crate::colors_manager::{ColorsMergeManager, has_exact_color_count};
+use crate::colors_memmap_writer::ColorsMemMapWriter;
+use atoi::{FromRadix10, FromRadix16};
+use bstr::ByteSlice;
+use byteorder::ReadBytesExt;
+use config::{ColorCounterType, ColorIndexType, DEFAULT_OUTPUT_BUFFER_SIZE};
+use hashbrown::HashMap;
+use hashes::ExtendableHashTraitType;
+use hashes::{HashFunction, HashFunctionFactory};
+use io::compressed_read::CompressedReadIndipendent;
+use io::concurrent::temp_reads::extra_data::{
+    SequenceExtraData, SequenceExtraDataTempBufferManagement, TempBuffer,
+};
+use io::ident_writer::IdentSequenceWriter;
+use io::varint::{VARINT_MAX_SIZE, decode_varint, encode_varint};
+use itertools::Itertools;
+use nightly_quirks::slice_partition_dedup::SlicePartitionDedup;
+use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::ops::Range;
+use std::path::Path;
+use std::slice::from_raw_parts;
+use structs::map_entry::MapEntry;
+use utils::inline_vec::{AllocatorU32, InlineVec};
+use utils::resize_containers::ResizableVec;
+
+struct ColorEntry {
+    tracking_counter_or_color: u64,
+    colors: InlineVec<ColorIndexType, 2>,
+}
+
+impl ColorEntry {
+    const REACHED_MULTIPLICITY_FLAG_SHIFT: usize = size_of::<u64>() * 8 - 1;
+    const REACHED_MULTIPLICITY_FLAG: u64 = 1 << Self::REACHED_MULTIPLICITY_FLAG_SHIFT;
+
+    fn reached_multiplicity(&self) -> bool {
+        self.tracking_counter_or_color & Self::REACHED_MULTIPLICITY_FLAG != 0
+            && self.tracking_counter_or_color & !Self::REACHED_MULTIPLICITY_FLAG > 0
+    }
+
+    fn get_counter(&self) -> u64 {
+        self.tracking_counter_or_color & !Self::REACHED_MULTIPLICITY_FLAG
+    }
+}
+
+/// This manager handles the case where each kmer of a sequence has the same set of explicit colors
+pub struct MultipleColorsManager {
+    colors_buffer: AllocatorU32,
+    colors_list: ResizableVec<ColorEntry, DEFAULT_OUTPUT_BUFFER_SIZE>,
+    last_color_index: usize,
+    last_switch_color_index: usize,
+}
+pub type HashMapTempColorIndex = usize;
+
+#[inline]
+fn get_entry_color(
+    manager: &MultipleColorsManager,
+    color_index: HashMapTempColorIndex,
+) -> ColorIndexType {
+    manager.colors_list[color_index].tracking_counter_or_color as ColorIndexType
+}
+
+impl ColorsMergeManager for MultipleColorsManager {
+    type SingleKmerColorDataType = ColorIndexType;
+    type TableColorEntry = ColorIndexType;
+    type GlobalColorsTableWriter = ColorsMemMapWriter<DefaultColorsSerializer>;
+    type GlobalColorsTableReader = ();
+
+    fn create_colors_table(
+        path: impl AsRef<Path>,
+        color_names: &[String],
+        threads_count: usize,
+        print_stats: bool,
+    ) -> anyhow::Result<Self::GlobalColorsTableWriter> {
+        ColorsMemMapWriter::new(path, color_names, threads_count, print_stats)
+    }
+
+    fn open_colors_table(_path: impl AsRef<Path>) -> anyhow::Result<Self::GlobalColorsTableReader> {
+        Ok(())
+    }
+
+    type ColorsBufferTempStructure = Self;
+
+    fn allocate_temp_buffer_structure() -> Self::ColorsBufferTempStructure {
+        Self {
+            colors_buffer: AllocatorU32::new(DEFAULT_OUTPUT_BUFFER_SIZE),
+            colors_list: ResizableVec::new(),
+            last_color_index: 0,
+            last_switch_color_index: 0,
+        }
+    }
+
+    fn reinit_temp_buffer_structure(data: &mut Self::ColorsBufferTempStructure) {
+        data.colors_buffer.reset();
+        data.colors_list.clear();
+    }
+
+    fn prepare_color_presence_filter(data: &mut Self, required_colors: usize) {
+        for entry in data.colors_list.iter_mut() {
+            if entry.reached_multiplicity()
+                && !has_exact_color_count(
+                    data.colors_buffer.slice_vec_mut(&mut entry.colors),
+                    required_colors,
+                )
+            {
+                // Gathering is complete: reference counts are no longer
+                // updated. Reuse the existing validity flag, with no new
+                // per-k-mer fields or genome-sized counter arrays.
+                entry.tracking_counter_or_color &= !ColorEntry::REACHED_MULTIPLICITY_FLAG;
+            }
+        }
+    }
+
+    fn passes_color_presence_filter(data: &Self, entry: HashMapTempColorIndex) -> bool {
+        data.colors_list[entry].reached_multiplicity()
+    }
+
+    fn add_temp_buffer_structure_el<MH: HashFunctionFactory>(
+        data: &mut Self::ColorsBufferTempStructure,
+        kmer_color: &[ColorIndexType],
+        entry_color: &mut Self::HashMapTempColorIndex,
+        same_color: bool,
+        reached_threshold: bool,
+    ) {
+        if same_color && data.last_switch_color_index == *entry_color {
+            // Shortcut to assign the same color to adjacent kmers that share the same value
+            if data.last_switch_color_index != usize::MAX {
+                let old_colors = &mut data.colors_list[data.last_switch_color_index];
+                old_colors.tracking_counter_or_color -= 1;
+                if *entry_color != data.last_color_index && old_colors.get_counter() == 0 {
+                    data.colors_buffer.free_vec(&mut old_colors.colors);
+                }
+            }
+            *entry_color = data.last_color_index;
+            data.colors_list[data.last_color_index].tracking_counter_or_color += 1;
+        } else {
+            data.last_switch_color_index = *entry_color;
+            // No color assigned, create a new one
+            if *entry_color == usize::MAX {
+                let mut new_colors = data.colors_buffer.new_vec(kmer_color.len());
+                let new_slice = data.colors_buffer.slice_vec_mut(&mut new_colors);
+                new_slice.copy_from_slice(kmer_color);
+                *entry_color = data.colors_list.len();
+                data.colors_list.push(ColorEntry {
+                    tracking_counter_or_color: 1,
+                    colors: new_colors,
+                });
+            } else {
+                let old_colors = &mut data.colors_list[*entry_color];
+
+                if old_colors.get_counter() == 1 {
+                    // It is the last reference, take ownership and extend the vector
+                    data.colors_buffer
+                        .extend_vec(&mut old_colors.colors, kmer_color);
+                } else {
+                    // Reduce tracking counter and optionally free the vector
+                    old_colors.tracking_counter_or_color -= 1;
+
+                    // Allocate a new buffer to store the colors
+                    let mut new_colors = data
+                        .colors_buffer
+                        .new_vec(old_colors.colors.len() + kmer_color.len());
+
+                    let old_colors_slice =
+                        unsafe { data.colors_buffer.slice_vec_static(&old_colors.colors) };
+                    let new_slice = data.colors_buffer.slice_vec_mut(&mut new_colors);
+                    new_slice[..old_colors.colors.len()].copy_from_slice(old_colors_slice);
+                    new_slice[old_colors.colors.len()..].copy_from_slice(kmer_color);
+
+                    // Add the new color
+                    *entry_color = data.colors_list.len();
+                    data.colors_list.push(ColorEntry {
+                        tracking_counter_or_color: 1,
+                        colors: new_colors,
+                    });
+                }
+            };
+
+            // Set the reached threshold flag
+            data.last_color_index = *entry_color;
+        }
+
+        // Set the reached multiplicity flag
+        data.colors_list[*entry_color].tracking_counter_or_color |=
+            (reached_threshold as u64) << ColorEntry::REACHED_MULTIPLICITY_FLAG_SHIFT;
+    }
+
+    type HashMapTempColorIndex = HashMapTempColorIndex;
+
+    fn new_color_index() -> Self::HashMapTempColorIndex {
+        usize::MAX
+    }
+
+    fn process_colors<MH: HashFunctionFactory>(
+        global_colors_table: &Self::GlobalColorsTableWriter,
+        data: &mut Self::ColorsBufferTempStructure,
+    ) {
+        let mut last_partition = &[][..];
+        let mut last_color = 0;
+
+        for color_entry in data.colors_list.iter_mut() {
+            if !color_entry.reached_multiplicity() {
+                continue;
+            }
+
+            // Assign the final color
+            let colors_range = data.colors_buffer.slice_vec_mut(&mut color_entry.colors);
+
+            if colors_range.len() == 0 {
+                println!(
+                    "Colors range: {} with counter: {}",
+                    colors_range.len(),
+                    color_entry.tracking_counter_or_color
+                );
+            }
+
+            colors_range.sort_unstable();
+
+            // Get the final colors count
+            let colors_count = colors_range.nq_partition_dedup().0.len();
+
+            let unique_colors = &colors_range[..colors_count];
+
+            // Assign the subset color index to the current kmer
+            if unique_colors != last_partition {
+                last_color = global_colors_table.get_id(unique_colors);
+                last_partition =
+                    unsafe { from_raw_parts(unique_colors.as_ptr(), unique_colors.len()) };
+            }
+
+            color_entry.tracking_counter_or_color = last_color as u64;
+        }
+        data.colors_buffer.reset();
+    }
+
+    fn assign_color(
+        global_colors_table: &Self::GlobalColorsTableWriter,
+        colors: &mut [Self::SingleKmerColorDataType],
+    ) -> Self::TableColorEntry {
+        colors.sort_unstable();
+        let colors_count = colors.nq_partition_dedup().0.len();
+        let unique_colors = &colors[..colors_count];
+
+        // Assign the subset color index to the current kmer
+        let color = global_colors_table.get_id(unique_colors);
+        color
+    }
+
+    type PartialUnitigsColorStructure = UnitigColorData;
+    type TempUnitigColorStructure = DefaultUnitigsTempColorData;
+
+    fn alloc_unitig_color_structure() -> Self::TempUnitigColorStructure {
+        DefaultUnitigsTempColorData {
+            colors: VecDeque::new(),
+        }
+    }
+
+    fn reset_unitig_color_structure(ts: &mut Self::TempUnitigColorStructure) {
+        ts.colors.clear();
+    }
+
+    #[inline]
+    fn extend_forward(
+        data: &Self::ColorsBufferTempStructure,
+        ts: &mut Self::TempUnitigColorStructure,
+        entry_color: Self::HashMapTempColorIndex,
+    ) {
+        let kmer_color = get_entry_color(data, entry_color);
+
+        if let Some(back_ts) = ts.colors.back_mut() {
+            if back_ts.color == kmer_color {
+                back_ts.counter += 1;
+                return;
+            }
+        }
+
+        ts.colors.push_back(KmerSerializedColor {
+            color: kmer_color,
+            counter: 1,
+        });
+    }
+
+    #[inline]
+    fn extend_backward(
+        data: &Self::ColorsBufferTempStructure,
+        ts: &mut Self::TempUnitigColorStructure,
+        entry_color: Self::HashMapTempColorIndex,
+    ) {
+        let kmer_color = get_entry_color(data, entry_color);
+
+        if let Some(front_ts) = ts.colors.front_mut() {
+            if front_ts.color == kmer_color {
+                front_ts.counter += 1;
+                return;
+            }
+        }
+
+        ts.colors.push_front(KmerSerializedColor {
+            color: kmer_color,
+            counter: 1,
+        });
+    }
+
+    fn extend_forward_with_color(
+        ts: &mut Self::TempUnitigColorStructure,
+        entry_color: Self::TableColorEntry,
+        count: usize,
+    ) {
+        if let Some(back_ts) = ts.colors.back_mut() {
+            if back_ts.color == entry_color {
+                back_ts.counter += count;
+                return;
+            }
+        }
+
+        ts.colors.push_back(KmerSerializedColor {
+            color: entry_color,
+            counter: count,
+        });
+    }
+
+    fn extend_backward_with_color(
+        ts: &mut Self::TempUnitigColorStructure,
+        entry_color: Self::TableColorEntry,
+        count: usize,
+    ) {
+        if let Some(front_ts) = ts.colors.front_mut() {
+            if front_ts.color == entry_color {
+                front_ts.counter += count;
+                return;
+            }
+        }
+
+        ts.colors.push_front(KmerSerializedColor {
+            color: entry_color,
+            counter: count,
+        });
+    }
+
+    fn join_structures<const REVERSE: bool>(
+        dest: &mut TempBuffer<Self::PartialUnitigsColorStructure>,
+        src: &Self::PartialUnitigsColorStructure,
+        src_buffer: &TempBuffer<Self::PartialUnitigsColorStructure>,
+        mut skip: ColorCounterType,
+        count: Option<usize>,
+    ) {
+        let get_index = |i| {
+            if REVERSE {
+                src.slice_end - i - 1
+            } else {
+                src.slice_start + i
+            }
+        };
+
+        let len = src.slice_end - src.slice_start;
+
+        let colors_slice = &src_buffer.colors.as_slice();
+
+        let mut count = count.unwrap_or(usize::MAX);
+
+        for i in 0..len {
+            let color = colors_slice[get_index(i)];
+
+            if color.counter <= skip {
+                skip -= color.counter;
+            } else {
+                let left = (color.counter - skip).min(count as ColorCounterType);
+
+                // Reached the needed count
+                if count == 0 {
+                    break;
+                }
+
+                count -= left as usize;
+                skip = 0;
+                if dest
+                    .colors
+                    .last()
+                    .map(|x| x.color == color.color)
+                    .unwrap_or(false)
+                {
+                    dest.colors.last_mut().unwrap().counter += left;
+                } else {
+                    dest.colors.push(KmerSerializedColor {
+                        color: color.color,
+                        counter: left,
+                    });
+                }
+            }
+        }
+    }
+
+    fn pop_base(
+        target: &mut Self::PartialUnitigsColorStructure,
+        colors_buffer: &mut TempBuffer<Self::PartialUnitigsColorStructure>,
+    ) {
+        if target.slice_end - target.slice_start > 0 {
+            let last = &mut colors_buffer.colors[target.slice_end - 1];
+            last.counter -= 1;
+            if last.counter == 0 {
+                target.slice_end -= 1;
+            }
+        }
+    }
+
+    fn remove_colors_range(
+        target: &mut TempBuffer<Self::PartialUnitigsColorStructure>,
+        range: Range<usize>,
+    ) {
+        let start = range.start;
+        let end = range.end;
+
+        let mut read_pos = 0usize;
+        let mut write_idx = 0usize;
+        let original_len = target.colors.len();
+
+        let mut write_run = |out: &mut Vec<KmerSerializedColor>, run: KmerSerializedColor| {
+            if run.counter == 0 {
+                return;
+            }
+
+            if write_idx > 0 && out[write_idx - 1].color == run.color {
+                out[write_idx - 1].counter += run.counter;
+            } else {
+                out[write_idx] = run;
+                write_idx += 1;
+            }
+        };
+
+        for read_idx in 0..original_len {
+            let run = target.colors[read_idx];
+            let run_start = read_pos;
+            let run_end = run_start + run.counter as usize;
+            read_pos = run_end;
+
+            if run_end <= start || run_start >= end {
+                write_run(&mut target.colors, run);
+                continue;
+            }
+
+            if run_start < start {
+                write_run(
+                    &mut target.colors,
+                    KmerSerializedColor {
+                        color: run.color,
+                        counter: (start - run_start) as ColorCounterType,
+                    },
+                );
+            }
+
+            if run_end > end {
+                write_run(
+                    &mut target.colors,
+                    KmerSerializedColor {
+                        color: run.color,
+                        counter: (run_end - end) as ColorCounterType,
+                    },
+                );
+            }
+        }
+
+        target.colors.truncate(write_idx);
+    }
+
+    fn get_color_from_fully_joined_buffer(
+        colors_buffer: &TempBuffer<Self::PartialUnitigsColorStructure>,
+    ) -> Self::PartialUnitigsColorStructure {
+        UnitigColorData {
+            slice_start: 0,
+            slice_end: colors_buffer.colors.len(),
+        }
+    }
+
+    fn encode_part_unitigs_colors(
+        ts: &mut Self::TempUnitigColorStructure,
+        colors_buffer: &mut TempBuffer<Self::PartialUnitigsColorStructure>,
+    ) -> Self::PartialUnitigsColorStructure {
+        colors_buffer.colors.clear();
+        colors_buffer.colors.extend(ts.colors.iter());
+
+        UnitigColorData {
+            slice_start: 0,
+            slice_end: colors_buffer.colors.len(),
+        }
+    }
+
+    fn debug_tucs(str: &Self::TempUnitigColorStructure, seq: &[u8]) {
+        let sum: usize = str
+            .colors
+            .iter()
+            .map(|x| x.counter)
+            .sum::<ColorCounterType>()
+            + 30;
+        if sum != seq.len() {
+            ggcat_logging::info!("Temp values: {} {}", sum as usize, seq.len());
+            ggcat_logging::info!("Dbg: {:?}", str.colors);
+            assert_eq!(sum as usize, seq.len());
+        }
+    }
+
+    fn debug_colors<MH: HashFunctionFactory>(
+        data: &Self::ColorsBufferTempStructure,
+        color: &Self::PartialUnitigsColorStructure,
+        colors_buffer: &TempBuffer<Self::PartialUnitigsColorStructure>,
+        seq: &[u8],
+        hmap: &HashMap<MH::HashTypeUnextendable, MapEntry<Self::HashMapTempColorIndex>>,
+    ) {
+        let mut storage = vec![];
+        let rind = CompressedReadIndipendent::from_plain(seq, &mut storage);
+        let read = rind.as_reference(&storage);
+
+        let hashes = MH::new(read, 31);
+
+        let subslice = &colors_buffer.colors[color.slice_start..color.slice_end];
+
+        for (hash, color) in hashes.iter().zip(
+            subslice
+                .iter()
+                .map(|x| (0..x.counter).into_iter().map(|_| x.color))
+                .flatten(),
+        ) {
+            let entry = hmap.get(&hash.to_unextendable()).unwrap();
+            let kmer_color = get_entry_color(data, entry.color_index);
+            if kmer_color != color {
+                let hashes = MH::new(read, 31);
+                ggcat_logging::error!(
+                    "Error: {:?}",
+                    hashes
+                        .iter()
+                        .map(|h| {
+                            let entry = hmap.get(&h.to_unextendable()).unwrap();
+                            let kmer_color = get_entry_color(data, entry.color_index);
+                            kmer_color
+                        })
+                        .zip(
+                            subslice
+                                .iter()
+                                .map(|x| (0..x.counter).into_iter().map(|_| x.color))
+                                .flatten()
+                        )
+                        .collect::<Vec<_>>()
+                );
+
+                assert_eq!(kmer_color, color);
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DefaultUnitigsTempColorData {
+    colors: VecDeque<KmerSerializedColor>,
+}
+
+#[derive(Debug, Default)]
+pub struct UnitigsSerializerTempBuffer {
+    pub(crate) colors: Vec<KmerSerializedColor>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct UnitigColorData {
+    pub(crate) slice_start: usize,
+    pub(crate) slice_end: usize,
+}
+
+impl Default for UnitigColorData {
+    fn default() -> Self {
+        Self {
+            slice_start: 0,
+            slice_end: 0,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct KmerSerializedColor {
+    pub(crate) color: ColorIndexType,
+    pub(crate) counter: ColorCounterType,
+}
+
+impl SequenceExtraDataTempBufferManagement for UnitigColorData {
+    type TempBuffer = UnitigsSerializerTempBuffer;
+
+    fn new_temp_buffer() -> UnitigsSerializerTempBuffer {
+        UnitigsSerializerTempBuffer { colors: Vec::new() }
+    }
+
+    fn clear_temp_buffer(buffer: &mut UnitigsSerializerTempBuffer) {
+        buffer.colors.clear();
+    }
+
+    fn copy_temp_buffer(dest: &mut UnitigsSerializerTempBuffer, src: &UnitigsSerializerTempBuffer) {
+        dest.colors.clear();
+        dest.colors.extend_from_slice(&src.colors);
+    }
+
+    fn copy_extra_from(
+        extra: Self,
+        src: &UnitigsSerializerTempBuffer,
+        dst: &mut UnitigsSerializerTempBuffer,
+    ) -> Self {
+        let start = dst.colors.len();
+        dst.colors
+            .extend(&src.colors[extra.slice_start..extra.slice_end]);
+        Self {
+            slice_start: start,
+            slice_end: dst.colors.len(),
+        }
+    }
+}
+
+impl SequenceExtraData for UnitigColorData {
+    fn decode_extended(buffer: &mut Self::TempBuffer, reader: &mut impl Read) -> Option<Self> {
+        let start = buffer.colors.len();
+
+        let colors_count = decode_varint(|| reader.read_u8().ok())?;
+
+        for _ in 0..colors_count {
+            buffer.colors.push(KmerSerializedColor {
+                color: decode_varint(|| reader.read_u8().ok())? as ColorIndexType,
+                counter: decode_varint(|| reader.read_u8().ok())? as ColorCounterType,
+            });
+        }
+        Some(Self {
+            slice_start: start,
+            slice_end: buffer.colors.len(),
+        })
+    }
+
+    fn encode_extended(
+        &self,
+        buffer: &Self::TempBuffer,
+        writer: &mut impl Write,
+        _sequence_length: usize,
+        reverse_complement: bool,
+        _read_flags: u8,
+    ) {
+        let colors_count = self.slice_end - self.slice_start;
+        encode_varint(|b| writer.write_all(b), colors_count as u64).unwrap();
+
+        if reverse_complement {
+            for i in (self.slice_start..self.slice_end).rev() {
+                let el = buffer.colors[i];
+                encode_varint(|b| writer.write_all(b), el.color as u64).unwrap();
+                encode_varint(|b| writer.write_all(b), el.counter as u64).unwrap();
+            }
+        } else {
+            for i in self.slice_start..self.slice_end {
+                let el = buffer.colors[i];
+                encode_varint(|b| writer.write_all(b), el.color as u64).unwrap();
+                encode_varint(|b| writer.write_all(b), el.counter as u64).unwrap();
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn max_size(&self) -> usize {
+        (2 * (self.slice_end - self.slice_start) + 1) * VARINT_MAX_SIZE
+    }
+}
+
+impl UnitigColorData {
+    #[inline]
+    fn iter_runs_with_range(
+        &self,
+        write_range: (usize, Option<usize>),
+        reverse_complement: bool,
+        extra_buffer: &UnitigsSerializerTempBuffer,
+        mut callback: impl FnMut(KmerSerializedColor),
+    ) {
+        let skip = write_range.0;
+        let mut remaining_take = write_range.1.unwrap_or(usize::MAX);
+        let mut remaining_skip = skip;
+
+        if reverse_complement {
+            for i in (self.slice_start..self.slice_end).rev() {
+                let run = extra_buffer.colors[i];
+                let run_len = run.counter as usize;
+                if remaining_skip >= run_len {
+                    remaining_skip -= run_len;
+                } else {
+                    let available = run_len - remaining_skip;
+                    let to_take = available.min(remaining_take);
+                    remaining_skip = 0;
+                    remaining_take -= to_take;
+
+                    callback(KmerSerializedColor {
+                        color: run.color,
+                        counter: to_take as ColorCounterType,
+                    });
+                }
+
+                if remaining_take == 0 {
+                    break;
+                }
+            }
+        } else {
+            for i in self.slice_start..self.slice_end {
+                let run = extra_buffer.colors[i];
+                let run_len = run.counter as usize;
+                if remaining_skip >= run_len {
+                    remaining_skip -= run_len;
+                } else {
+                    let available = run_len - remaining_skip;
+                    let to_take = available.min(remaining_take);
+                    remaining_skip = 0;
+                    remaining_take -= to_take;
+
+                    callback(KmerSerializedColor {
+                        color: run.color,
+                        counter: to_take as ColorCounterType,
+                    });
+                }
+
+                if remaining_take == 0 {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+impl IdentSequenceWriter for UnitigColorData {
+    type PartialConnectionData = Option<KmerSerializedColor>;
+
+    fn write_as_ident(
+        &self,
+        partial_data: &mut Self::PartialConnectionData,
+        write_range: (usize, Option<usize>),
+        reverse_complement: bool,
+        stream: &mut impl Write,
+        extra_buffer: &Self::TempBuffer,
+    ) {
+        self.iter_runs_with_range(write_range, reverse_complement, extra_buffer, |run| {
+            if let Some(prev) = partial_data {
+                if prev.color == run.color {
+                    prev.counter += run.counter;
+                    return;
+                }
+            }
+
+            if let Some(prev) = partial_data.take() {
+                write!(stream, " C:{:x}:{}", prev.color, prev.counter).unwrap();
+            }
+            *partial_data = Some(run);
+        });
+    }
+
+    fn flush_partial_as_ident(partial_data: Self::PartialConnectionData, stream: &mut impl Write) {
+        if let Some(partial_data) = partial_data {
+            write!(
+                stream,
+                " C:{:x}:{}",
+                partial_data.color, partial_data.counter
+            )
+            .unwrap();
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn write_as_gfa<const VERSION: u32>(
+        &self,
+        _k: u64,
+        _index: u64,
+        _length: u64,
+        partial_data: &mut Self::PartialConnectionData,
+        write_range: (usize, Option<usize>),
+        reverse_complement: bool,
+        stream: &mut impl Write,
+        extra_buffer: &Self::TempBuffer,
+    ) {
+        let mut wrote_any = false;
+
+        self.iter_runs_with_range(write_range, reverse_complement, extra_buffer, |run| {
+            if !wrote_any {
+                wrote_any = true;
+                if partial_data.is_none() {
+                    write!(stream, "CS").unwrap();
+                }
+            }
+
+            if let Some(prev) = partial_data {
+                if prev.color == run.color {
+                    prev.counter += run.counter;
+                    return;
+                }
+            }
+
+            if let Some(prev) = partial_data.take() {
+                write!(stream, ":{:x}:{}", prev.color, prev.counter).unwrap();
+            }
+            *partial_data = Some(run);
+        });
+    }
+
+    fn flush_partial_as_gfa<const VERSION: u32>(
+        _k: u64,
+        _index: u64,
+        _length: u64,
+        partial_data: Self::PartialConnectionData,
+        stream: &mut impl Write,
+    ) {
+        if let Some(partial_data) = partial_data {
+            write!(stream, ":{:x}:{}", partial_data.color, partial_data.counter).unwrap();
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn parse_as_ident<'a>(
+        ident: &[u8],
+        colors_buffer: &mut Self::TempBuffer,
+    ) -> Option<(Self, usize)> {
+        let mut colors_count = 0;
+        let slice_start = colors_buffer.colors.len();
+        for col_pos in ident.find_iter(b"C:") {
+            let (color_index, next_pos) = ColorIndexType::from_radix_16(&ident[(col_pos + 2)..]);
+
+            let kmers_count = ColorCounterType::from_radix_10(&ident[(col_pos + next_pos + 3)..]).0;
+            colors_buffer.colors.push(KmerSerializedColor {
+                color: color_index,
+                counter: kmers_count,
+            });
+            colors_count += kmers_count
+        }
+        if colors_count == 0 {
+            ggcat_logging::error!("Error: 0 colors for {:?}", std::str::from_utf8(ident));
+        }
+
+        Some((
+            UnitigColorData {
+                slice_start,
+                slice_end: colors_buffer.colors.len(),
+            },
+            colors_count,
+        ))
+    }
+
+    #[allow(unused_variables)]
+    fn parse_as_gfa<'a>(
+        ident: &[u8],
+        extra_buffer: &mut Self::TempBuffer,
+    ) -> Option<(Self, usize)> {
+        let mut colors_count = 0;
+        let slice_start = extra_buffer.colors.len();
+        if let Some(mut col_pos) = ident.find(b"CA:") {
+            col_pos += 3;
+
+            for (col_string, col_len) in ident[col_pos..].split(|c| *c == b':').tuples() {
+                let color_index = ColorIndexType::from_radix_16(col_string).0;
+                let kmers_count = ColorCounterType::from_radix_10(col_len).0;
+                extra_buffer.colors.push(KmerSerializedColor {
+                    color: color_index,
+                    counter: kmers_count,
+                });
+                colors_count += kmers_count
+            }
+        }
+        if colors_count == 0 {
+            ggcat_logging::error!("Error: 0 colors for {:?}", std::str::from_utf8(ident));
+        }
+
+        Some((
+            UnitigColorData {
+                slice_start,
+                slice_end: extra_buffer.colors.len(),
+            },
+            colors_count,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::colors_manager::ColorsMergeManager;
+
+    use super::{KmerSerializedColor, MultipleColorsManager, UnitigsSerializerTempBuffer};
+
+    fn run_remove(range: std::ops::Range<usize>, runs: &[(u32, usize)]) -> Vec<(u32, usize)> {
+        let mut buffer = UnitigsSerializerTempBuffer {
+            colors: runs
+                .iter()
+                .map(|(color, counter)| KmerSerializedColor {
+                    color: *color,
+                    counter: *counter as _,
+                })
+                .collect(),
+        };
+
+        MultipleColorsManager::remove_colors_range(&mut buffer, range);
+
+        buffer
+            .colors
+            .into_iter()
+            .map(|run| (run.color, run.counter as usize))
+            .collect()
+    }
+
+    #[test]
+    fn remove_colors_range_uses_half_open_offsets() {
+        assert_eq!(
+            run_remove(2..5, &[(1, 2), (2, 3), (3, 2)]),
+            vec![(1, 2), (3, 2)]
+        );
+    }
+
+    #[test]
+    fn remove_colors_range_merges_adjacent_runs_after_splice() {
+        assert_eq!(run_remove(2..4, &[(1, 2), (2, 2), (1, 3)]), vec![(1, 5)]);
+    }
+
+    #[test]
+    fn remove_colors_range_leaves_buffer_unchanged_for_empty_range() {
+        assert_eq!(
+            run_remove(3..3, &[(1, 2), (2, 2), (3, 1)]),
+            vec![(1, 2), (2, 2), (3, 1)]
+        );
+    }
+
+    #[test]
+    fn remove_colors_range_preserves_both_sides_when_splitting_one_run() {
+        assert_eq!(run_remove(2..4, &[(1, 6)]), vec![(1, 4)]);
+    }
+}

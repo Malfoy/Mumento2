@@ -1,0 +1,12 @@
+# Build outputs and local experiments
+**/target/
+/benchmarks/
+/mumemto/
+__pycache__/
+*.rs.bk
+.DS_Store
+
+# Local environment metadata
+/.agents/
+/.aws/
+/.codex/

@@ -1,0 +1,79 @@
+#[macro_use]
+pub mod debug_functions;
+pub mod assembler_phases;
+pub mod fast_rand_bool;
+pub mod fuzzy_buckets;
+pub mod fuzzy_hashmap;
+pub mod inline_vec;
+pub mod owned_drop;
+pub mod resize_containers;
+pub mod resource_counter;
+pub mod vec_slice;
+
+use std::cmp::max;
+
+pub struct Utils;
+
+const C_INV_LETTERS: [u8; 4] = [b'A', b'C', b'T', b'G'];
+
+#[macro_export]
+macro_rules! panic_debug {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "debug")]
+        panic!($($arg)*);
+        #[cfg(not(feature = "debug"))]
+        unsafe { std::hint::unreachable_unchecked() }
+    };
+}
+
+pub fn compute_best_m(k: usize) -> usize {
+    match k {
+        0..=13 => max(k / 2, k.saturating_sub(4)),
+        14..=15 => 9,
+        16..=21 => 10,
+        22..=30 => 11,
+        31..=37 => 12,
+        38..=42 => 13,
+        43..=64 => 14,
+        _ => ((k as f64) / 4.0).round() as usize,
+    }
+}
+
+impl Utils {
+    #[inline(always)]
+    pub fn compress_base(base: u8) -> u8 {
+        (base >> 1) & 0x3
+    }
+
+    #[inline(always)]
+    pub fn compress_base_complement(base: u8) -> u8 {
+        (base >> 1) & 0x3 ^ 2
+    }
+
+    #[inline(always)]
+    pub fn decompress_base(cbase: u8) -> u8 {
+        C_INV_LETTERS[cbase as usize]
+    }
+
+    #[inline(always)]
+    pub fn conditional_rc_base(cbase: u8, do_rc: bool) -> u8 {
+        cbase ^ if do_rc { 2 } else { 0 }
+    }
+}
+
+// Fast (low endian) copy of a slice of bytes, up to 7. Needs write access to the next 8 bytes
+#[inline(always)]
+pub fn copy_array_nooverwrite(value: &[u8; 8], count: usize, dest: *mut u8) {
+    debug_assert!(count <= 7);
+
+    unsafe {
+        let memory = u64::from_le_bytes((dest as *const [u8; 8]).read_unaligned());
+
+        let mask = u64::MAX << (count * 8);
+
+        std::ptr::write_unaligned(
+            dest as *mut [u8; 8],
+            ((memory & mask) | u64::from_le_bytes(*value)).to_le_bytes(),
+        );
+    }
+}
