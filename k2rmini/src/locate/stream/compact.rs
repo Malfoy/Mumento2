@@ -125,7 +125,10 @@ impl FragmentIndex {
         } else {
             tempfile::Builder::new().prefix("sshash-").tempdir()?
         };
-        let mut config = BuildConfiguration::new(k, 23.min(k - 1)).map_err(invalid)?;
+        // Longer minimizers reduce failed dictionary work at the measured k=63.
+        // Preserve the existing smaller-k configuration.
+        let minimizer = if k == 63 { 31 } else { 23.min(k - 1) };
+        let mut config = BuildConfiguration::new(k, minimizer).map_err(invalid)?;
         config.num_threads = options.threads;
         config.ram_limit_gib = 4;
         config.tmp_dirname = scratch.path().to_path_buf();
