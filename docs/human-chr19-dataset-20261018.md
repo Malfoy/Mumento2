@@ -22,4 +22,4 @@ Eligibility required a unique chromosome-19 assignment and a record length of 40
 | 256 | 195 | 15.7821 |
 | 512 | 276 | 31.5587 |
 
-The local frozen manifest records sample ID, haplotype, assembly accession/name, source URL, chromosome record, sequence length, object ETag and checksums. Both tools receive the same collection in the same order. Uniqueness is evaluated within these chromosome-19 inputs; whole-genome uniqueness and performance have not been measured.
+The [public input manifest](human-chr19-inputs-20261018.csv) lists all 512 inputs in benchmark order, including assembly URLs and checksums. The local frozen manifest records sample ID, haplotype, assembly accession/name, source URL, chromosome record, sequence length, object ETag and checksums. Both tools receive the same collection in the same order. Uniqueness is evaluated within these chromosome-19 inputs; whole-genome uniqueness and performance have not been measured.
