@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
-use k2rmini::locate::{LocateOptions, locate_mums, locate_shared_mums, read_state_info};
+use k2rmini::locate::{LocateOptions, locate_graph_mums, locate_shared_mums, read_state_info};
 
 #[derive(Parser)]
 #[command(
@@ -34,7 +34,7 @@ struct Args {
     /// Add the supplied NEW genomes to an existing state (updated in place by default)
     #[arg(long)]
     update: Option<PathBuf>,
-    /// Build graph seeds from this many initial genomes, then validate against ALL inputs
+    /// Graph seed inputs (default: up to 16 for stateless all-genome searches, otherwise all)
     #[arg(long)]
     seed_genomes: Option<usize>,
     /// Zstd-compressed MUM TSV, plus <output>.contigs.tsv.zst
@@ -92,7 +92,18 @@ fn seed_plan(
     reusable: bool,
     requested: Option<usize>,
 ) -> Result<(usize, usize)> {
-    let seeds = requested.unwrap_or(genomes);
+    // Every strict all-genome match occurs in the first input. A complete
+    // reference graph therefore contains every qualifying seed. A bounded
+    // prefix further rejects private reference variation without building a
+    // graph over the full collection. Exact validation still scans all inputs;
+    // subset thresholds and reusable unions need broader candidate coverage.
+    let seeds = requested.unwrap_or_else(|| {
+        if !reusable && minimum.unwrap_or(genomes) == genomes {
+            genomes.min(16)
+        } else {
+            genomes
+        }
+    });
     ensure!(
         (1..=genomes).contains(&seeds),
         "seed-genomes must be between 1 and the number of new input genomes"
@@ -311,7 +322,7 @@ fn main() -> Result<()> {
             args.update.as_deref(),
         )?
     } else {
-        locate_mums(
+        locate_graph_mums(
             &protos,
             &args.genomes,
             &args.output,
@@ -348,6 +359,20 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn automatic_graph_seed_plan_preserves_threshold_and_reusable_coverage() {
+        for g in 1..=100 {
+            let seeds = g.min(16);
+            assert_eq!(seed_plan(g, None, false, None).unwrap(), (seeds, seeds));
+            assert_eq!(seed_plan(g, Some(g), false, None).unwrap(), (seeds, seeds));
+            assert_eq!(seed_plan(g, None, false, Some(g)).unwrap(), (g, g));
+            assert_eq!(seed_plan(g, None, true, None).unwrap(), (g, 1));
+            for n in 1..g {
+                assert_eq!(seed_plan(g, Some(n), false, None).unwrap(), (g, n));
+                assert_eq!(seed_plan(g, Some(n), true, None).unwrap(), (g, 1));
+            }
+        }
+    }
     #[test]
     fn subset_presence_bound_covers_every_support_set() {
         for g in 1usize..=10 {

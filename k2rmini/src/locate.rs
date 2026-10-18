@@ -7,7 +7,7 @@ use std::{
 
 use helicase::{input::*, *};
 use rustc_hash::{FxHashMap, FxHashSet};
-use simd_minimizers::{
+use sshash_lib::{
     packed_seq::{PackedSeqVec, Seq, SeqVec},
     seq_hash::{KmerHasher, NtHasher},
 };
@@ -124,12 +124,38 @@ struct Hit {
 
 mod stream;
 pub use stream::{
-    LocateStats, LocateTimings, StateInfo, locate_mums, locate_shared_mums, read_state_info,
+    LocateStats, LocateTimings, StateInfo, locate_graph_mums, locate_mums, locate_shared_mums,
+    read_state_info,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packed_genomes_remain_compatible_with_legacy_state_bytes() {
+        use simd_minimizers::packed_seq::{PackedSeqVec as LegacyPacked, SeqVec as _};
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        for len in [0usize, 1, 3, 4, 7, 31, 32, 33, 63, 64, 65, 127, 128, 129, 131133] {
+            let dna: Vec<_> = (0..len).map(|_| {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                b"ACTGactg"[(rng >> 61) as usize]
+            }).collect();
+            let old = LegacyPacked::from_ascii(&dna).into_raw();
+            let restored = PackedSeqVec::from_raw_parts(old.clone(), len);
+            for (i, &base) in dna.iter().enumerate() {
+                assert_eq!(restored.as_slice().get_ascii(i), base.to_ascii_uppercase());
+            }
+            let mut new = PackedSeqVec::from_ascii(&dna).into_raw();
+            let mut old = old;
+            if len % 4 != 0 {
+                let mask = (1u8 << (2 * (len % 4))) - 1;
+                *new.last_mut().unwrap() &= mask;
+                *old.last_mut().unwrap() &= mask;
+            }
+            assert_eq!(new, old, "packed state encoding changed at length={len}");
+        }
+    }
 
     fn run(patterns: &str, genomes: &[&str], chunk_bases: usize) -> (LocateStats, String) {
         run_mode(patterns, genomes, chunk_bases, false)

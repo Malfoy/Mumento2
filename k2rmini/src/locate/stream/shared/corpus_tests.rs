@@ -446,6 +446,47 @@ fn discovery(c: &Case, dir: &Path) {
     assert_eq!(stats.verified_mums, c.expected.len());
     assert_eq!(stats.source_genomes_read, inputs.len());
     if c.minimum.is_none_or(|n| n == c.genomes.len()) {
+        // A graph dictionary has one canonical position per k-mer. Supply a
+        // complete spectrum from genome zero, independently of arbitrary proto
+        // overlaps/duplicates used by the legacy-path fixture.
+        if c.genomes.iter().flatten().map(String::len).sum::<usize>() < 20_000 {
+            let mut keys = BTreeSet::new();
+            for sequence in &c.genomes[0] {
+                for run in sequence
+                    .as_bytes()
+                    .split(|&b| !is_dna(b))
+                    .filter(|r| r.len() >= c.k)
+                {
+                    for seed in run.windows(c.k) {
+                        let mut key = seed.to_vec();
+                        if !c.forward_only {
+                            key = key.min(reverse(seed));
+                        }
+                        keys.insert(key);
+                    }
+                }
+            }
+            let graph = dir.join("graph-distinct-kmers.fa");
+            let mut text = Vec::new();
+            for key in keys {
+                text.extend_from_slice(b">k\n");
+                text.extend(key);
+                text.push(b'\n');
+            }
+            fs::write(&graph, text).unwrap();
+            let compact = dir.join("sshash.zst");
+            let stats = super::super::locate_graph_mums(
+                &graph,
+                &inputs,
+                &compact,
+                Some(dir),
+                case_options(c),
+            )
+            .unwrap();
+            assert_eq!(stats.verified_mums, c.expected.len(), "SSHash match count");
+            assert_eq!(stats.source_genomes_read, inputs.len());
+            verify(c, &compact, &c.genomes, c.minimum, &c.expected);
+        }
         let classic = dir.join("classic.zst");
         let stats = locate_mums(&patterns, &inputs, &classic, Some(dir), case_options(c)).unwrap();
         assert_eq!(stats.verified_mums, c.expected.len());

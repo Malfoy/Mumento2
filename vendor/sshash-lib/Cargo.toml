@@ -1,0 +1,76 @@
+[package]
+name = "sshash-lib"
+version = "0.7.1"
+edition = "2024"
+rust-version = "1.88"
+authors = ["SSHash Contributors"]
+license-file = "LICENSE"
+repository = "https://github.com/COMBINE-lab/sshash-rs"
+description = "Sparse and Skew Hashing of k-mers - Core library"
+
+[dependencies]
+# Succinct data structures
+sux = { version = "0.14.0", features = ["epserde"] }
+
+# Minimal perfect hashing  
+ptr_hash = { git = "https://github.com/RagnarGrootKoerkamp/PTRHash", rev = "7da31136d1c8952ac6cd4e54dffa27a8453329cb", default-features = false, features = ["epserde"] }
+cacheline-ef = { version = "=2.0.0", features = ["epserde"] }
+ptr_epserde = { package = "epserde", version = "=0.13.1" }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+simd-minimizers = { git = "https://github.com/rust-seq/simd-minimizers", rev = "a173cbe9c2bca81f622ce9296996f694c997f071" }
+
+# FASTA/FASTQ parsing
+needletail = { version = "0.7", default-features = false }
+
+# Serialization
+epserde = "0.12.6" # Must match sux's epserde version
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+
+# Parallelism
+rayon = "1.12"
+
+# Utilities for const generic generation
+seq-macro = "0.3"
+
+# Fast, portable hashing (CPU-feature independent — no AES-NI divergence unlike ahash)
+#
+# Pinned exactly, for the same reason `tiny-dict` pins it: `hasher.rs` derives
+# `DeterministicHasher`'s magic constant through `rapidhash::fast::RapidHasher`,
+# and rapidhash documents that module as explicitly *not* stable across versions
+# — "In-memory hash outputs (e.g. RapidHasher) may change between minor versions
+# to allow freely improving performance." Only the `v1`/`v2`/`v3` modules carry a
+# stability guarantee, and this is not one of them.
+#
+# That magic is recomputed at *load* time (`Dictionary` deserialization builds
+# `DeterministicHasher::new(1)`; the header stores k/m/canonical, not the magic)
+# and it feeds minimizer selection, which decides bucket layout. So a rapidhash
+# release that changed `fast::RapidHasher` would make a rebuilt binary compute
+# different minimizers and silently fail to find k-mers in `.ssi` indices built
+# earlier — no error, just a collapsed mapping rate. That is the same failure
+# class as the ahash/AES-NI divergence this crate moved to rapidhash to escape.
+#
+# `tiny-dict` additionally records the writing version in its `.tdct` header and
+# rejects unverified ones on load (`io::ACCEPTED_RAPIDHASH_VERSIONS`). `.ssi` has
+# no such check yet, which makes the pin the only guard here — do not relax it to
+# a caret requirement without adding one.
+rapidhash = "=4.5.1"
+
+# Value-based slice traits (used by sux BitFieldVec)
+value-traits = "0.2"
+
+# Memory usage measurement (must match sux's version)
+mem_dbg = "0.4.4"
+
+# Memory mapping (for external sorting)
+memmap2 = "0.9"
+
+[dev-dependencies]
+# Testing utilities
+rand = "0.10"
+tempfile = "3.27"

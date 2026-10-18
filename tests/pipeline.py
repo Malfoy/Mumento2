@@ -20,6 +20,50 @@ def rc(sequence):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_repeated_prefix_skip_preserves_unique_mums_crossing_its_end(self):
+        from oracle import expected_matches, verify_output
+        rng = random.Random(170035)
+        dna = lambda n: ''.join(rng.choices('ACGT', k=n))
+        repeated = dna(120)
+        lefts = [dna(30) for _ in range(3)]
+        tails = [dna(40) for _ in range(4)]
+        reference = [lefts[i] + repeated + tails[i] for i in range(3)]
+        # This copy starts inside the repeated prefix and alone matches the
+        # query beyond its end. A skip must leave a crossing seed to recover it.
+        reference.append(repeated[40:] + tails[3])
+        # Its right suffix also occurs in other documents/contigs: the first
+        # crossing seed alone cannot establish this MUM's left uniqueness.
+        reference.extend([repeated[45:] + tails[3], repeated[50:] + tails[3]])
+        query = [lefts[0] + repeated + tails[3]]
+        for reverse_reference in [False, True]:
+            for reverse_query in [False, True]:
+                genomes = [[rc(s) if reverse_reference else s for s in reference],
+                           [rc(s) if reverse_query else s for s in query]]
+                for k in [7, 31, 63]:
+                    with self.subTest(k=k, rr=reverse_reference, rq=reverse_query), tempfile.TemporaryDirectory(prefix='mumento2-repeat-prefix-') as scratch:
+                        scratch = Path(scratch)
+                        inputs = self.write_genomes(scratch, genomes, 'g')
+                        self.run_tool(scratch, 'out.zst', inputs, '-k', str(k), '--seed-genomes', '1')
+                        text = zstd.decompress((scratch/'out.zst').read_bytes()).decode()
+                        expected = expected_matches(genomes, k)
+                        verify_output(self, text, genomes, k, None, False, expected)
+                        self.assertTrue(any(len(m['sequence']) >= 120 and m['hits'][0][0] == 3 for m in expected))
+
+    def test_automatic_bounded_seed_graph_validates_every_document(self):
+        rng = random.Random(170034)
+        core = ''.join(rng.choices('ACGT', k=1000))
+        # The last document lies beyond the automatic seed prefix. Its contig
+        # breaks must still restrict long candidates into their actual MUMs.
+        genomes = [[core] for _ in range(16)] + [[core[:400], core[370:730], core[700:]]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-auto-seeds-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            automatic, run = self.run_tool(scratch, 'auto.zst', inputs, '-k', '31')
+            full, _ = self.run_tool(scratch, 'full.zst', inputs, '-k', '31', '--seed-genomes', '17')
+            self.assertEqual(set(automatic), set(full))
+            self.assertEqual({int(r.split('\t')[0]) for r in automatic}, {300, 360, 400})
+            self.assertIn('Seed subset: 16/17', run.stderr)
+
     def test_input_list_runs_compressed_genomes_with_spaces_and_rejects_duplicates(self):
         rng = random.Random(180031)
         core = ''.join(rng.choices('ACGT', k=240))
@@ -29,7 +73,7 @@ class PipelineTests(unittest.TestCase):
             listing = directory / 'genomes.list'
             listing.write_bytes(('\r\n'.join(p.name for p in inputs) + '\r\n\r\n').encode())
             rows, _ = self.run_tool(directory, 'out.zst', [], '-k', '31', '--input-list', str(listing),
-                                    '--keep-temp', '--temp-dir', str(directory))
+                                    '--keep-temp', '--temp-dir', str(directory), '--seed-genomes', '3')
             self.assertEqual(rows, ['240\t0,0,0\t+,-,+\t0,0,0'])
             graph_list = next(directory.glob('mumento2-*/graph-inputs.list'))
             self.assertEqual(graph_list.read_text().splitlines(), list(map(str, inputs)))
@@ -47,8 +91,11 @@ class PipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='mumento2-seed-subset-') as scratch:
             scratch = Path(scratch)
             inputs = self.write_genomes(scratch, genomes, 'g')
-            full, _ = self.run_tool(scratch, 'full.zst', inputs, '-k', '31')
+            full, _ = self.run_tool(scratch, 'full.zst', inputs, '-k', '31',
+                                    '--seed-genomes', str(len(inputs)))
             self.assertEqual({int(r.split('\t')[0]) for r in full}, {300, 360, 400})
+            automatic, _ = self.run_tool(scratch, 'automatic.zst', inputs, '-k', '31')
+            self.assertEqual(set(automatic), set(full))
             for count in (1, 2):
                 subset, _ = self.run_tool(scratch, f'subset-{count}.zst', inputs,
                                           '-k', '31', '--seed-genomes', str(count))

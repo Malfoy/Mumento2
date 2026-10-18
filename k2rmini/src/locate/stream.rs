@@ -1,6 +1,8 @@
 //! One query pass per genome: SIMD lookup and exact alignment evidence are
 //! computed together. Reduction never reads genome bases or compressed caches.
 use super::*;
+mod compact;
+mod restriction;
 mod shared;
 pub use shared::{StateInfo, locate_shared_mums, read_state_info};
 use std::{
@@ -116,6 +118,9 @@ struct ScanStats {
     contexts: usize,
     alignments: usize,
     cache_hits: usize,
+    hot_cache_hits: usize,
+    absent_windows_skipped: usize,
+    unique_alignment_windows_skipped: usize,
     extended_bases: u64,
 }
 
@@ -125,6 +130,9 @@ impl ScanStats {
         self.contexts += other.contexts;
         self.alignments += other.alignments;
         self.cache_hits += other.cache_hits;
+        self.hot_cache_hits += other.hot_cache_hits;
+        self.absent_windows_skipped += other.absent_windows_skipped;
+        self.unique_alignment_windows_skipped += other.unique_alignment_windows_skipped;
         self.extended_bases += other.extended_bases;
     }
 }
@@ -146,6 +154,7 @@ struct FragmentIndex {
     active: Vec<u64>,
     unique_runs: Vec<u32>,
     probe: Vec<u64>,
+    compact: Option<compact::CompactProtoIndex>,
 }
 
 impl FragmentIndex {
@@ -160,6 +169,7 @@ impl FragmentIndex {
             active: Vec::new(),
             unique_runs: Vec::new(),
             probe: Vec::new(),
+            compact: None,
         };
         this.extend(source)?;
         Ok(this)
@@ -245,6 +255,9 @@ impl FragmentIndex {
     }
 
     fn rebuild(&mut self) {
+        if self.compact.is_some() {
+            return;
+        }
         self.heads = FxHashMap::with_capacity_and_hasher(
             self.active_positions()
                 .saturating_mul(if self.options.forward_only { 1 } else { 2 }),
@@ -300,6 +313,9 @@ impl FragmentIndex {
         origin: u64,
         mut accept: impl FnMut(Fragment) -> io::Result<()>,
     ) -> io::Result<()> {
+        if let Some(compact) = &self.compact {
+            return compact.scan(self, query, contig, origin, accept);
+        }
         if self.heads.is_empty() {
             return Ok(());
         }
@@ -423,6 +439,18 @@ impl FragmentIndex {
             }
         }
         Ok(())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.active_positions() == 0
+    }
+
+    fn seed_count(&self) -> usize {
+        if self.compact.is_some() {
+            *self.position_offsets.last().unwrap()
+        } else {
+            self.heads.len()
+        }
     }
 }
 
@@ -726,9 +754,83 @@ fn reference_contexts(
     Ok(stats)
 }
 
+#[cfg(test)]
+fn parallel_reference_contexts(
+    reference: &Reference,
+    shards: usize,
+    k: usize,
+    workers: usize,
+    writer: &mut ContextWriter,
+) -> io::Result<ScanStats> {
+    let mut grouped: Vec<Vec<Fragment>> =
+        (0..reference.contigs.len()).map(|_| Vec::new()).collect();
+    for &fragment in reference.fragments.iter().flatten() {
+        grouped[fragment.hit.contig as usize].push(fragment);
+    }
+    let next: Vec<_> = grouped.iter().map(|_| AtomicUsize::new(0)).collect();
+    let workers = workers.min(
+        grouped
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>()
+            .div_ceil(256)
+            .max(1),
+    );
+    let parts = thread::scope(|scope| -> io::Result<Vec<(ContextSink, ScanStats)>> {
+        let mut handles = Vec::new();
+        for _ in 0..workers {
+            let grouped = &grouped;
+            let next = &next;
+            handles.push(scope.spawn(move || -> io::Result<_> {
+                let mut sink = ContextSink::new(shards, reference, k);
+                let mut stats = ScanStats::default();
+                for (id, fragments) in grouped.iter().enumerate() {
+                    let mut cache = AlignmentCache::default();
+                    loop {
+                        let start = next[id].fetch_add(256, Ordering::Relaxed);
+                        if start >= fragments.len() {
+                            break;
+                        }
+                        for &fragment in &fragments[start..(start + 256).min(fragments.len())] {
+                            consume_fragment(
+                                reference,
+                                fragment,
+                                &reference.contigs[id],
+                                reference.meta.contigs[id].start,
+                                k,
+                                &mut cache,
+                                &mut stats,
+                                &mut sink,
+                            )?;
+                        }
+                    }
+                }
+                Ok((sink, stats))
+            }));
+        }
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join()
+                    .map_err(|_| io::Error::other("reference worker panicked"))?
+            })
+            .collect()
+    })?;
+    let mut stats = ScanStats {
+        genomes: 1,
+        ..Default::default()
+    };
+    for (sink, part) in parts {
+        sink.finish_to(writer, 0)?;
+        stats.add(part);
+    }
+    Ok(stats)
+}
+
 fn scan_query(
     index: &FragmentIndex,
     reference: &Reference,
+    restriction: Option<&restriction::RestrictionIndex>,
     input: &Path,
     id: usize,
     shards: usize,
@@ -757,27 +859,40 @@ fn scan_query(
                 start: origin,
                 len: sequence.len(),
             });
-            if index.heads.is_empty() {
+            if index.is_empty() {
                 origin += sequence.len() as u64;
                 continue;
             }
             let packed = PackedContig::new(sequence, index.options.k);
             let mut cache = AlignmentCache::default();
-            index.scan(&packed, contig, origin, |fragment| {
-                if let Some(bits) = present.as_deref_mut() {
-                    index.mark_present(bits, fragment);
-                }
-                consume_fragment(
+            if let Some(restriction) = restriction {
+                restriction.scan(
+                    index,
                     reference,
-                    fragment,
                     &packed,
+                    contig,
                     origin,
-                    index.options.k,
-                    &mut cache,
                     &mut stats,
                     &mut sink,
-                )
-            })?;
+                    present.as_deref_mut(),
+                )?;
+            } else {
+                index.scan(&packed, contig, origin, |fragment| {
+                    if let Some(bits) = present.as_deref_mut() {
+                        index.mark_present(bits, fragment);
+                    }
+                    consume_fragment(
+                        reference,
+                        fragment,
+                        &packed,
+                        origin,
+                        index.options.k,
+                        &mut cache,
+                        &mut stats,
+                        &mut sink,
+                    )
+                })?;
+            }
             origin += packed.len() as u64;
         }
     }
@@ -814,9 +929,56 @@ fn interval_hit(record: Record, begin: u64, end: u64) -> Hit {
     }
 }
 
+// Equal oriented mappings describe the same physical occurrence throughout
+// their overlap. Use widened arithmetic for valid u64 coordinates near the limit.
+fn same_mapping(a: Record, b: Record) -> bool {
+    a.hit.contig == b.hit.contig
+        && a.hit.reverse == b.hit.reverse
+        && if a.hit.reverse {
+            a.hit.start as u128 + a.end as u128 == b.hit.start as u128 + b.end as u128
+        } else {
+            a.hit.start as u128 + b.begin as u128 == b.hit.start as u128 + a.begin as u128
+        }
+}
+
+const NO_CONTEXT: usize = usize::MAX;
+
+// At one physical position there can be at most two oriented mappings (the
+// palindrome case). Therefore the three furthest distinct mappings suffice:
+// if all three reach a candidate's end, at least two physical copies exist.
+// Discarded shorter mappings can never change that decision. Later records can
+// promote their mapping again if they extend beyond one of the retained ends.
+fn retain_occurrence(top: &mut [usize; 3], contexts: &[Context], candidate: usize) {
+    let record = contexts[candidate].record;
+    if top[0] != NO_CONTEXT && contexts[top[0]].record.end <= record.begin {
+        *top = [candidate, NO_CONTEXT, NO_CONTEXT];
+        return;
+    }
+    let existing = top
+        .iter()
+        .position(|&id| id != NO_CONTEXT && same_mapping(contexts[id].record, record));
+    let mut slot = if let Some(slot) = existing {
+        if contexts[top[slot]].record.end >= record.end {
+            return;
+        }
+        slot
+    } else {
+        if top[2] != NO_CONTEXT && contexts[top[2]].record.end >= record.end {
+            return;
+        }
+        2
+    };
+    while slot > 0
+        && (top[slot - 1] == NO_CONTEXT || contexts[top[slot - 1]].record.end < record.end)
+    {
+        top[slot] = top[slot - 1];
+        slot -= 1;
+    }
+    top[slot] = candidate;
+}
+
 // As starts advance, each genome contributes its furthest surviving end.
-// Their minimum is the next common range. A second physical occurrence reaching
-// that end invalidates uniqueness, while shorter occurrences remain harmless.
+// Uniqueness uses bounded occurrence evidence, without rescanning old contexts.
 fn reduce_ranges(
     contexts: &mut [Context],
     k: u64,
@@ -826,8 +988,7 @@ fn reduce_ranges(
     bases: u64,
 ) -> Vec<VerifiedMatch> {
     contexts.sort_unstable_by_key(|c| c.record.begin);
-    let mut best = vec![None::<usize>; genomes];
-    let mut second = vec![None::<u64>; genomes];
+    let mut best = vec![[NO_CONTEXT; 3]; genomes];
     let mut present = 0;
     let mut previous_end = 0;
     let mut cursor = 0;
@@ -835,19 +996,11 @@ fn reduce_ranges(
     while cursor < contexts.len() {
         let begin = contexts[cursor].record.begin;
         while cursor < contexts.len() && contexts[cursor].record.begin == begin {
-            let c = &contexts[cursor];
-            let g = c.genome;
-            if let Some(old) = best[g] {
-                if c.record.end > contexts[old].record.end {
-                    second[g] = Some(second[g].unwrap_or(0).max(contexts[old].record.end));
-                    best[g] = Some(cursor);
-                } else {
-                    second[g] = Some(second[g].unwrap_or(0).max(c.record.end));
-                }
-            } else {
-                best[g] = Some(cursor);
+            let top = &mut best[contexts[cursor].genome];
+            if top[0] == NO_CONTEXT {
                 present += 1;
             }
+            retain_occurrence(top, contexts, cursor);
             cursor += 1;
         }
         if present != genomes {
@@ -855,7 +1008,7 @@ fn reduce_ranges(
         }
         let end = best
             .iter()
-            .map(|i| contexts[i.unwrap()].record.end)
+            .map(|top| contexts[top[0]].record.end)
             .min()
             .unwrap();
         if end <= previous_end {
@@ -865,35 +1018,35 @@ fn reduce_ranges(
         if end < begin + k || ((begin as u128 * shards as u128) / bases as u128) as usize != shard {
             continue;
         }
-        let mut hits: Vec<_> = best
-            .iter()
-            .map(|i| interval_hit(contexts[i.unwrap()].record, begin, end))
-            .collect();
-        if second.iter().any(|e| e.is_some_and(|e| e >= end)) {
-            let mut ambiguous = false;
-            for c in &contexts[..cursor] {
-                if c.record.end < end {
-                    continue;
+        let mut hits = Vec::with_capacity(genomes);
+        let mut ambiguous = false;
+        for top in &best {
+            let mut chosen = interval_hit(contexts[top[0]].record, begin, end);
+            for &id in &top[1..] {
+                if id == NO_CONTEXT || contexts[id].record.end < end {
+                    break;
                 }
-                let candidate = interval_hit(c.record, begin, end);
-                let chosen = &mut hits[c.genome];
+                let candidate = interval_hit(contexts[id].record, begin, end);
                 if candidate.contig != chosen.contig || candidate.start != chosen.start {
                     ambiguous = true;
                     break;
                 }
                 // A reverse-complement palindrome is one physical occurrence.
                 if !candidate.reverse {
-                    *chosen = candidate;
+                    chosen = candidate;
                 }
             }
             if ambiguous {
-                continue;
+                break;
             }
+            hits.push(chosen);
         }
-        output.push(VerifiedMatch {
-            len: end - begin,
-            hits,
-        });
+        if !ambiguous {
+            output.push(VerifiedMatch {
+                len: end - begin,
+                hits,
+            });
+        }
     }
     output
 }
@@ -975,6 +1128,27 @@ fn reduce_shard(
 // For a fixed reference contig, orientation and diagonal, a maximal exact
 // alignment interval can serve every seed inside it. No probabilistic LCEs.
 type AlignmentCache = FxHashMap<(u32, bool, i64), AlignmentIntervals>;
+type MonotonicAlignmentCache = FxHashMap<(u32, bool, i64), LastAlignmentInterval>;
+
+trait AlignmentHistory: Default {
+    fn preceding(&self, position: usize) -> Option<(usize, usize)>;
+    fn insert(&mut self, begin: usize, end: usize);
+}
+
+#[derive(Default)]
+struct LastAlignmentInterval {
+    begin: usize,
+    end: usize,
+}
+impl AlignmentHistory for LastAlignmentInterval {
+    fn preceding(&self, position: usize) -> Option<(usize, usize)> {
+        (self.begin <= position).then_some((self.begin, self.end))
+    }
+    fn insert(&mut self, begin: usize, end: usize) {
+        self.begin = begin;
+        self.end = end;
+    }
+}
 
 #[derive(Default)]
 enum AlignmentIntervals {
@@ -984,7 +1158,7 @@ enum AlignmentIntervals {
     Multiple(BTreeMap<usize, usize>),
 }
 
-impl AlignmentIntervals {
+impl AlignmentHistory for AlignmentIntervals {
     fn preceding(&self, position: usize) -> Option<(usize, usize)> {
         match self {
             Self::Empty => None,
@@ -1006,6 +1180,7 @@ impl AlignmentIntervals {
     }
 }
 
+#[inline(always)]
 fn alignment_context(
     reference: &Reference,
     anchor: &Anchor,
@@ -1013,6 +1188,36 @@ fn alignment_context(
     hit: Hit,
     origin: u64,
     cache: &mut AlignmentCache,
+    stats: &mut ScanStats,
+) -> io::Result<(u64, u64)> {
+    alignment_context_impl(reference, anchor, query, hit, origin, cache, stats)
+}
+
+// A fixed-length compact scan visits query seed starts monotonically. For a
+// fixed reference contig, strand and diagonal, distinct exact maximal intervals
+// are disjoint and visited in order. If the latest interval cannot cover the
+// next seed, no older interval can. Arbitrarily ordered fragment scans retain
+// the full history through alignment_context instead.
+#[inline(always)]
+fn alignment_context_monotonic(
+    reference: &Reference,
+    anchor: &Anchor,
+    query: &PackedContig,
+    hit: Hit,
+    origin: u64,
+    cache: &mut MonotonicAlignmentCache,
+    stats: &mut ScanStats,
+) -> io::Result<(u64, u64)> {
+    alignment_context_impl(reference, anchor, query, hit, origin, cache, stats)
+}
+
+fn alignment_context_impl<History: AlignmentHistory>(
+    reference: &Reference,
+    anchor: &Anchor,
+    query: &PackedContig,
+    hit: Hit,
+    origin: u64,
+    cache: &mut FxHashMap<(u32, bool, i64), History>,
     stats: &mut ScanStats,
 ) -> io::Result<(u64, u64)> {
     let rcontig = anchor.hit.contig as usize;
@@ -1186,6 +1391,19 @@ pub fn locate_mums(
     locate_mums_with_batch(patterns, inputs, output, scratch_parent, options, 256)
 }
 
+/// Locate from the complete shared de Bruijn graph (one canonical position per
+/// k-mer). SSHash is a proto dictionary; source documents are scanned once.
+/// Arbitrary/redundant proto sets must use `locate_mums` instead.
+pub fn locate_graph_mums(
+    patterns: &Path,
+    inputs: &[PathBuf],
+    output: &Path,
+    scratch_parent: Option<&Path>,
+    options: LocateOptions,
+) -> io::Result<LocateStats> {
+    locate_impl(patterns, inputs, output, scratch_parent, options, 256, true)
+}
+
 fn genome_scan_order(genomes: usize, first_batch: usize) -> Vec<usize> {
     if first_batch == 0 {
         return (1..genomes).collect();
@@ -1216,11 +1434,45 @@ fn locate_mums_with_batch(
     options: LocateOptions,
     first_batch: usize,
 ) -> io::Result<LocateStats> {
+    locate_impl(
+        patterns,
+        inputs,
+        output,
+        scratch_parent,
+        options,
+        first_batch,
+        false,
+    )
+}
+
+fn locate_impl(
+    patterns: &Path,
+    inputs: &[PathBuf],
+    output: &Path,
+    scratch_parent: Option<&Path>,
+    options: LocateOptions,
+    first_batch: usize,
+    graph: bool,
+) -> io::Result<LocateStats> {
     if inputs.is_empty() {
         return Err(invalid("at least one genome is required"));
     }
     let started = Instant::now();
-    let mut index = FragmentIndex::new(ProtoIndex::from_fasta(patterns, options)?)?;
+    let source = ProtoIndex::from_fasta(patterns, options)?;
+    let mut index = if graph {
+        FragmentIndex::from_graph(source, scratch_parent)?
+    } else {
+        FragmentIndex::new(source)?
+    };
+    // The compact restriction scanner uses immutable reference occurrence
+    // evidence, not the mutable hash-posting pruning table. Its final reduction
+    // still requires exact contexts from every genome. Avoid collecting unused
+    // presence masks so verified unique alignments can skip across proto records.
+    let first_batch = if index.compact.is_some() {
+        0
+    } else {
+        first_batch
+    };
     let mut timings = LocateTimings {
         index: started.elapsed().as_secs_f64(),
         ..Default::default()
@@ -1228,9 +1480,9 @@ fn locate_mums_with_batch(
     let workers = index.options.threads;
     let shards = workers.min(index.patterns.len().max(1));
     eprintln!(
-        "K2Rmini: indexed {} proto-MUMs ({} seed hashes); {} workers; one query pass per genome",
+        "K2Rmini: indexed {} proto-MUMs ({} seed entries); {} workers; one query pass per genome",
         index.patterns.len(),
-        index.heads.len(),
+        index.seed_count(),
         workers
     );
     let scratch = if let Some(parent) = scratch_parent {
@@ -1243,16 +1495,57 @@ fn locate_mums_with_batch(
     };
     let started = Instant::now();
     let mut reference = read_reference(&index, &inputs[0])?;
+    let mut largest: Vec<_> = reference
+        .fragments
+        .iter()
+        .enumerate()
+        .map(|(id, f)| (f.len(), id))
+        .collect();
+    largest.sort_unstable_by(|a, b| b.cmp(a));
+    eprintln!(
+        "[reference_occurrences]\t{:.6}s\t{} fragments\t{} naive occurrence pairs\t{:?} largest (copies, proto)",
+        started.elapsed().as_secs_f64(),
+        reference.fragments.iter().map(Vec::len).sum::<usize>(),
+        reference
+            .fragments
+            .iter()
+            .map(|f| (f.len() as u128).pow(2))
+            .sum::<u128>(),
+        &largest[..largest.len().min(8)]
+    );
     let mut reference_writer = ContextWriter::new(scratch.path(), 0, shards)?;
-    let mut scan_stats =
-        reference_contexts(&reference, shards, index.options.k, &mut reference_writer)?;
+    let contexts_started = Instant::now();
+    let restriction = if index.compact.is_some() {
+        Some(restriction::RestrictionIndex::build(&index, &reference)?)
+    } else {
+        None
+    };
+    let mut scan_stats = if index.compact.is_some() {
+        restriction::RestrictionIndex::identity(
+            &reference,
+            shards,
+            index.options.k,
+            &mut reference_writer,
+        )?
+    } else {
+        reference_contexts(&reference, shards, index.options.k, &mut reference_writer)?
+    };
     reference_writer.finish()?;
+    eprintln!(
+        "[reference_contexts]\t{:.6}s\t{} contexts\t{} alignments",
+        contexts_started.elapsed().as_secs_f64(),
+        scan_stats.contexts,
+        scan_stats.alignments
+    );
     if first_batch != 0 {
         let mut present = vec![0u64; index.active.len()];
         for &fragment in reference.fragments.iter().flatten() {
             index.mark_present(&mut present, fragment);
         }
         index.retain_present(&present);
+    }
+    if restriction.is_some() {
+        reference.fragments.clear();
     }
     timings.reference_scan = started.elapsed().as_secs_f64();
     let started = Instant::now();
@@ -1271,7 +1564,7 @@ fn locate_mums_with_batch(
     while begin < order.len() {
         let end = begin.saturating_add(batch_size).min(order.len());
         let batch = &order[begin..end];
-        let track = first_batch != 0 && end < order.len() && !index.heads.is_empty();
+        let track = first_batch != 0 && end < order.len() && !index.is_empty();
         let next = AtomicUsize::new(0);
         let results = thread::scope(
             |scope| -> io::Result<Vec<(Vec<(usize, GenomeMeta, ScanStats)>, Vec<u64>)>> {
@@ -1280,6 +1573,7 @@ fn locate_mums_with_batch(
                     let next = &next;
                     let index = &index;
                     let reference = &reference;
+                    let restriction = restriction.as_ref();
                     handles.push(scope.spawn(move || -> io::Result<_> {
                         let mut result = Vec::new();
                         let mut surviving = if track {
@@ -1298,6 +1592,7 @@ fn locate_mums_with_batch(
                             let (meta, stats) = scan_query(
                                 index,
                                 reference,
+                                restriction,
                                 &inputs[id],
                                 id,
                                 shards,
@@ -1345,7 +1640,7 @@ fn locate_mums_with_batch(
                 end + 1,
                 before,
                 index.active_positions(),
-                index.heads.len(),
+                index.seed_count(),
                 prune_started.elapsed().as_secs_f64()
             );
         }
@@ -1361,10 +1656,9 @@ fn locate_mums_with_batch(
         metas[id] = Some(meta);
         scan_stats.add(stats);
     }
-    reference.contigs.clear();
     let started = Instant::now();
     let k = index.options.k;
-    let reductions = thread::scope(|scope| -> io::Result<Vec<Vec<VerifiedMatch>>> {
+    let mut reductions = thread::scope(|scope| -> io::Result<Vec<Vec<VerifiedMatch>>> {
         let mut handles = Vec::new();
         for shard in 0..shards {
             let reference = &reference;
@@ -1389,6 +1683,17 @@ fn locate_mums_with_batch(
             })
             .collect()
     })?;
+    if index.compact.is_some() {
+        for matches in &mut reductions {
+            matches.retain(|item| {
+                restriction
+                    .as_ref()
+                    .unwrap()
+                    .unique(&index, &reference, item)
+            });
+        }
+    }
+    reference.contigs.clear();
     timings.reduce = started.elapsed().as_secs_f64();
     let reference_bases = reference
         .meta
@@ -1473,12 +1778,18 @@ fn locate_mums_with_batch(
     timings.finalize = started.elapsed().as_secs_f64();
     stats.timings = timings;
     eprintln!(
-        "[scan_summary]\t{} source genome reads\t{} contexts\t{} new exact alignments\t{} alignment cache hits\t{} extended bases",
+        "[unique_alignment_skips]\t{} seed windows skipped across proto boundaries",
+        scan_stats.unique_alignment_windows_skipped
+    );
+    eprintln!(
+        "[scan_summary]\t{} source genome reads\t{} contexts\t{} new exact alignments\t{} alignment cache hits\t{} extended bases\t{} first-level cache hits\t{} minimizer-absent windows skipped",
         scan_stats.genomes,
         scan_stats.contexts,
         scan_stats.alignments,
         scan_stats.cache_hits,
-        scan_stats.extended_bases
+        scan_stats.extended_bases,
+        scan_stats.hot_cache_hits,
+        scan_stats.absent_windows_skipped
     );
     Ok(stats)
 }
@@ -1486,6 +1797,281 @@ fn locate_mums_with_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Deliberately slow oracle: revisit every prior interval at each start and
+    // collect every covering physical occurrence, without a bounded summary.
+    fn exhaustive_reduction(
+        contexts: &[Context],
+        genomes: usize,
+        k: u64,
+    ) -> Vec<(u64, Vec<(u32, u64, bool)>)> {
+        let mut starts: Vec<_> = contexts.iter().map(|c| c.record.begin).collect();
+        starts.sort_unstable();
+        starts.dedup();
+        let mut previous_end = 0;
+        let mut output = Vec::new();
+        for begin in starts {
+            let ends: Vec<_> = (0..genomes)
+                .map(|genome| {
+                    contexts
+                        .iter()
+                        .filter(|c| c.genome == genome && c.record.begin <= begin)
+                        .map(|c| c.record.end)
+                        .max()
+                })
+                .collect();
+            if ends.iter().any(Option::is_none) {
+                continue;
+            }
+            let end = ends.into_iter().flatten().min().unwrap();
+            if end <= previous_end {
+                continue;
+            }
+            previous_end = end;
+            if end < begin + k {
+                continue;
+            }
+            let mut hits = Vec::new();
+            for genome in 0..genomes {
+                let mut copies = BTreeMap::new();
+                for c in contexts.iter().filter(|c| {
+                    c.genome == genome && c.record.begin <= begin && c.record.end >= end
+                }) {
+                    let h = interval_hit(c.record, begin, end);
+                    copies
+                        .entry((h.contig, h.start))
+                        .and_modify(|r: &mut bool| *r &= h.reverse)
+                        .or_insert(h.reverse);
+                }
+                if copies.len() != 1 {
+                    break;
+                }
+                let ((contig, start), reverse) = copies.into_iter().next().unwrap();
+                hits.push((contig, start, reverse));
+            }
+            if hits.len() == genomes {
+                output.push((end - begin, hits));
+            }
+        }
+        output.sort_unstable();
+        output
+    }
+
+    #[test]
+    fn bounded_occurrences_match_exhaustive_physical_interval_oracle() {
+        let mut state = 0x5120_2026_1018u64;
+        let mut random = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for genomes in [1, 2, 3, 5, 7] {
+            for case in 0..160 {
+                let mut contexts = vec![Context {
+                    genome: 0,
+                    record: Record {
+                        begin: 0,
+                        end: 80,
+                        hit: Hit {
+                            pattern: 0,
+                            contig: 0,
+                            start: 0,
+                            reverse: false,
+                        },
+                    },
+                }];
+                for genome in 1..genomes {
+                    for _ in 0..(4 + case % 48) {
+                        let begin = random() % 72;
+                        let end = begin + 1 + random() % (80 - begin);
+                        let class = random() % (1 + case % 9);
+                        let reverse = class % 2 != 0;
+                        let offset = 200 + (class / 2) * 100;
+                        let record = Record {
+                            begin,
+                            end,
+                            hit: Hit {
+                                pattern: 0,
+                                contig: (class / 6) as u32,
+                                start: offset + if reverse { 80 - end } else { begin },
+                                reverse,
+                            },
+                        };
+                        contexts.push(Context { genome, record });
+                        // Overlapping records with the same affine mapping and
+                        // palindromic pairs must not count as additional copies.
+                        if random() % 4 == 0 {
+                            contexts.push(Context { genome, record });
+                        }
+                    }
+                }
+                let expected = exhaustive_reduction(&contexts, genomes, 3);
+                for shards in [1, 3] {
+                    let mut actual = Vec::new();
+                    for shard in 0..shards {
+                        let mut input = contexts.clone();
+                        actual.extend(
+                            reduce_ranges(&mut input, 3, genomes, shard, shards, 80)
+                                .into_iter()
+                                .map(|m| {
+                                    (
+                                        m.len,
+                                        m.hits
+                                            .into_iter()
+                                            .map(|h| (h.contig, h.start, h.reverse))
+                                            .collect(),
+                                    )
+                                }),
+                        );
+                    }
+                    actual.sort_unstable();
+                    assert_eq!(
+                        actual, expected,
+                        "genomes={genomes}, case={case}, shards={shards}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn occurrence_mapping_identity_handles_wide_coordinates() {
+        let a = Record {
+            begin: u64::MAX - 80,
+            end: u64::MAX - 10,
+            hit: Hit {
+                pattern: 0,
+                contig: 1,
+                start: u64::MAX - 100,
+                reverse: false,
+            },
+        };
+        let b = Record {
+            begin: a.begin + 1,
+            end: a.end,
+            hit: Hit {
+                start: a.hit.start + 1,
+                ..a.hit
+            },
+        };
+        assert!(same_mapping(a, b));
+        assert!(!same_mapping(
+            a,
+            Record {
+                hit: Hit {
+                    start: b.hit.start + 1,
+                    ..b.hit
+                },
+                ..b
+            }
+        ));
+        let a = Record {
+            hit: Hit {
+                reverse: true,
+                ..a.hit
+            },
+            ..a
+        };
+        let b = Record {
+            begin: a.begin + 1,
+            end: a.end - 1,
+            hit: Hit {
+                start: a.hit.start + 1,
+                ..a.hit
+            },
+        };
+        assert!(same_mapping(a, b));
+        assert!(!same_mapping(
+            a,
+            Record {
+                hit: Hit { contig: 2, ..b.hit },
+                ..b
+            }
+        ));
+    }
+
+    #[test]
+    fn parallel_reference_batches_preserve_all_exact_serial_contexts() -> io::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let mut state = 431u64;
+        let mut dna: Vec<_> = (0..9000)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                b"ACGT"[(state >> 62) as usize]
+            })
+            .collect();
+        dna.extend_from_within(1000..3000);
+        let options = LocateOptions {
+            k: 31,
+            m: 15,
+            threads: 4,
+            chunk_bases: 127,
+            forward_only: false,
+        };
+        let mut source = ProtoIndex {
+            options,
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        let mut keys = std::collections::BTreeSet::new();
+        for seed in dna.windows(31) {
+            keys.insert(seed.to_vec().min(reverse(seed)));
+        }
+        for seed in keys {
+            source.add_pattern(&seed)?;
+        }
+        let index = FragmentIndex::new(source)?;
+        let input = temp.path().join("reference.fa");
+        let mut bytes = b">first\n".to_vec();
+        bytes.extend(&dna);
+        bytes.extend(b"\n>second\n");
+        bytes.extend(reverse(&dna[1000..3000]));
+        bytes.push(b'\n');
+        std::fs::write(&input, bytes)?;
+        let reference = read_reference(&index, &input)?;
+        assert!(reference.fragments.iter().map(Vec::len).sum::<usize>() > 1024);
+        let mut observed = Vec::new();
+        for parallel in [false, true] {
+            let dir = temp
+                .path()
+                .join(if parallel { "parallel" } else { "serial" });
+            std::fs::create_dir(&dir)?;
+            let mut writer = ContextWriter::new(&dir, 0, 4)?;
+            let stats = if parallel {
+                parallel_reference_contexts(&reference, 4, 31, 4, &mut writer)?
+            } else {
+                reference_contexts(&reference, 4, 31, &mut writer)?
+            };
+            assert_eq!(stats.genomes, 1);
+            writer.finish()?;
+            let mut rows = Vec::new();
+            for shard in 0..4 {
+                let mut contexts = Vec::new();
+                read_worker_contexts(
+                    &mut File::open(worker_context_path(&dir, 0, shard))?,
+                    &mut contexts,
+                    &mut Vec::new(),
+                    1,
+                )?;
+                rows.extend(contexts.into_iter().map(|c| {
+                    (
+                        shard,
+                        c.record.begin,
+                        c.record.end,
+                        c.record.hit.contig,
+                        c.record.hit.start,
+                        c.record.hit.reverse,
+                    )
+                }));
+            }
+            rows.sort_unstable();
+            rows.dedup();
+            observed.push(rows);
+        }
+        assert_eq!(observed[0], observed[1]);
+        Ok(())
+    }
 
     #[test]
     fn presence_ranges_exactly_mark_half_open_windows_across_word_boundaries() {
@@ -2005,72 +2591,94 @@ mod tests {
                 },
                 fragments: Vec::new(),
             };
-            let mut cache = AlignmentCache::default();
-            let mut stats = ScanStats::default();
-            let mut checked = 0;
-            for r in (0..sequence.len() - 7).step_by(3) {
-                if !sequence[r..r + 7].iter().copied().all(is_dna)
-                    || sequence[r..r + 7] != query[r + 5..r + 12]
-                {
-                    continue;
+            for descending in [false, true] {
+                let mut cache = AlignmentCache::default();
+                let mut monotonic_cache = MonotonicAlignmentCache::default();
+                let mut monotonic_stats = ScanStats::default();
+                let mut stats = ScanStats::default();
+                let mut checked = 0;
+                let mut positions: Vec<_> = (0..sequence.len() - 7).step_by(3).collect();
+                if descending {
+                    positions.reverse();
                 }
-                let mut left = 0usize;
-                while r > left
-                    && is_dna(sequence[r - left - 1])
-                    && sequence[r - left - 1] == query[r + 5 - left - 1]
-                {
-                    left += 1;
-                }
-                let mut right = 0usize;
-                while r + 7 + right < sequence.len()
-                    && is_dna(sequence[r + 7 + right])
-                    && sequence[r + 7 + right] == query[r + 12 + right]
-                {
-                    right += 1;
-                }
-                for reverse_anchor in [false, true] {
-                    let anchor = Anchor {
-                        hit: Hit {
+                for r in positions {
+                    if !sequence[r..r + 7].iter().copied().all(is_dna)
+                        || sequence[r..r + 7] != query[r + 5..r + 12]
+                    {
+                        continue;
+                    }
+                    let mut left = 0usize;
+                    while r > left
+                        && is_dna(sequence[r - left - 1])
+                        && sequence[r - left - 1] == query[r + 5 - left - 1]
+                    {
+                        left += 1;
+                    }
+                    let mut right = 0usize;
+                    while r + 7 + right < sequence.len()
+                        && is_dna(sequence[r + 7 + right])
+                        && sequence[r + 7 + right] == query[r + 12 + right]
+                    {
+                        right += 1;
+                    }
+                    for reverse_anchor in [false, true] {
+                        let anchor = Anchor {
+                            hit: Hit {
+                                pattern: 0,
+                                contig: 0,
+                                start: 37 + r as u64,
+                                reverse: reverse_anchor,
+                            },
+                            len: 7,
+                        };
+                        let q = if reverse_query {
+                            physical.len() - (r + 5) - 7
+                        } else {
+                            r + 5
+                        };
+                        let hit = Hit {
                             pattern: 0,
                             contig: 0,
-                            start: 37 + r as u64,
-                            reverse: reverse_anchor,
-                        },
-                        len: 7,
-                    };
-                    let q = if reverse_query {
-                        physical.len() - (r + 5) - 7
-                    } else {
-                        r + 5
-                    };
-                    let hit = Hit {
-                        pattern: 0,
-                        contig: 0,
-                        start: 71 + q as u64,
-                        reverse: reverse_query != reverse_anchor,
-                    };
-                    let expected = if reverse_anchor {
-                        (right as u64, left as u64)
-                    } else {
-                        (left as u64, right as u64)
-                    };
-                    assert_eq!(
-                        alignment_context(
-                            &reference, &anchor, &packed, hit, 71, &mut cache, &mut stats
-                        )?,
-                        expected
-                    );
-                    checked += 1;
+                            start: 71 + q as u64,
+                            reverse: reverse_query != reverse_anchor,
+                        };
+                        let expected = if reverse_anchor {
+                            (right as u64, left as u64)
+                        } else {
+                            (left as u64, right as u64)
+                        };
+                        assert_eq!(
+                            alignment_context(
+                                &reference, &anchor, &packed, hit, 71, &mut cache, &mut stats
+                            )?,
+                            expected
+                        );
+                        assert_eq!(
+                            alignment_context_monotonic(
+                                &reference,
+                                &anchor,
+                                &packed,
+                                hit,
+                                71,
+                                &mut monotonic_cache,
+                                &mut monotonic_stats,
+                            )?,
+                            expected
+                        );
+                        checked += 1;
+                    }
                 }
+                assert!(checked > 500);
+                assert!(
+                    stats.alignments < 20,
+                    "{} alignments for {} seeds",
+                    stats.alignments,
+                    checked
+                );
+                assert!(stats.cache_hits > 500);
+                assert_eq!(monotonic_stats.alignments, stats.alignments);
+                assert_eq!(monotonic_stats.cache_hits, stats.cache_hits);
             }
-            assert!(checked > 500);
-            assert!(
-                stats.alignments < 20,
-                "{} alignments for {} seeds",
-                stats.alignments,
-                checked
-            );
-            assert!(stats.cache_hits > 500);
         }
         Ok(())
     }
