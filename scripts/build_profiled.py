@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile', type=Path,
-                        default=ROOT/'profiles/mumento2-10000-llvm22.profdata')
+                        default=ROOT/'profiles/mumento2-human-chr19-llvm22.profdata')
     parser.add_argument('--metadata', type=Path,
-                        default=ROOT/'profiles/mumento2-10000-llvm22.json')
+                        default=ROOT/'profiles/mumento2-human-chr19-llvm22.json')
     parser.add_argument('-j', '--jobs', type=int, default=4)
     args = parser.parse_args()
     if args.jobs < 1:

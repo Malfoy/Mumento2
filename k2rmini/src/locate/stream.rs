@@ -1128,6 +1128,7 @@ fn reduce_shard(
 // For a fixed reference contig, orientation and diagonal, a maximal exact
 // alignment interval can serve every seed inside it. No probabilistic LCEs.
 type AlignmentCache = FxHashMap<(u32, bool, i64), AlignmentIntervals>;
+#[cfg(test)]
 type MonotonicAlignmentCache = FxHashMap<(u32, bool, i64), LastAlignmentInterval>;
 
 trait AlignmentHistory: Default {
@@ -1135,11 +1136,13 @@ trait AlignmentHistory: Default {
     fn insert(&mut self, begin: usize, end: usize);
 }
 
+#[cfg(test)]
 #[derive(Default)]
 struct LastAlignmentInterval {
     begin: usize,
     end: usize,
 }
+#[cfg(test)]
 impl AlignmentHistory for LastAlignmentInterval {
     fn preceding(&self, position: usize) -> Option<(usize, usize)> {
         (self.begin <= position).then_some((self.begin, self.end))
@@ -1198,6 +1201,7 @@ fn alignment_context(
 // are disjoint and visited in order. If the latest interval cannot cover the
 // next seed, no older interval can. Arbitrarily ordered fragment scans retain
 // the full history through alignment_context instead.
+#[cfg(test)]
 #[inline(always)]
 fn alignment_context_monotonic(
     reference: &Reference,
@@ -1220,9 +1224,7 @@ fn alignment_context_impl<History: AlignmentHistory>(
     cache: &mut FxHashMap<(u32, bool, i64), History>,
     stats: &mut ScanStats,
 ) -> io::Result<(u64, u64)> {
-    let rcontig = anchor.hit.contig as usize;
-    let rseq = &reference.contigs[rcontig];
-    let r = (anchor.hit.start - reference.meta.contigs[rcontig].start) as usize;
+    let r = (anchor.hit.start - reference.meta.contigs[anchor.hit.contig as usize].start) as usize;
     let physical_q = (hit.start - origin) as usize;
     let reverse = anchor.hit.reverse != hit.reverse;
     let q = if reverse {
@@ -1243,6 +1245,42 @@ fn alignment_context_impl<History: AlignmentHistory>(
             });
         }
     }
+    let (left, right) = alignment_context_uncached(reference, anchor, query, hit, origin, stats)?;
+    let (physical_left, physical_right) = if anchor.hit.reverse {
+        (right, left)
+    } else {
+        (left, right)
+    };
+    intervals.insert(
+        r - physical_left as usize,
+        r + anchor.len + physical_right as usize,
+    );
+    Ok((left, right))
+}
+
+// Exact bounded extension, shared by cached fragment scans and the compact
+// scanner. Its direct-mapped recent cache is bounded independently of input
+// size; collisions cause recomputation and scratch dedup removes duplicate
+// contexts. No unbounded per-diagonal map is needed on this path.
+#[inline(always)]
+fn alignment_context_uncached(
+    reference: &Reference,
+    anchor: &Anchor,
+    query: &PackedContig,
+    hit: Hit,
+    origin: u64,
+    stats: &mut ScanStats,
+) -> io::Result<(u64, u64)> {
+    let rcontig = anchor.hit.contig as usize;
+    let rseq = &reference.contigs[rcontig];
+    let r = (anchor.hit.start - reference.meta.contigs[rcontig].start) as usize;
+    let physical_q = (hit.start - origin) as usize;
+    let reverse = anchor.hit.reverse != hit.reverse;
+    let q = if reverse {
+        query.len() - physical_q - anchor.len
+    } else {
+        physical_q
+    };
     let rb = rseq.bounds(r, anchor.len)?;
     let qb = query.bounds(physical_q, anchor.len)?;
     let qb = if reverse {
@@ -1267,7 +1305,6 @@ fn alignment_context_impl<History: AlignmentHistory>(
         .slice(rseq.len() - r..rseq.len() - rb.start)
         .cmp_lcp(&qbackward.slice(query.len() - q..query.len() - qb.start))
         .1;
-    intervals.insert(r - left, r + anchor.len + right);
     stats.alignments += 1;
     stats.extended_bases += (left + right) as u64;
     Ok(if anchor.hit.reverse {
@@ -2662,6 +2699,17 @@ mod tests {
                                 71,
                                 &mut monotonic_cache,
                                 &mut monotonic_stats,
+                            )?,
+                            expected
+                        );
+                        assert_eq!(
+                            alignment_context_uncached(
+                                &reference,
+                                &anchor,
+                                &packed,
+                                hit,
+                                71,
+                                &mut ScanStats::default()
                             )?,
                             expected
                         );

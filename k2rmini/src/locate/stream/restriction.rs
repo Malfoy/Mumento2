@@ -40,8 +40,8 @@ pub(super) struct RestrictionIndex {
     repeated: Vec<u64>,
     boundaries: Vec<u64>,
     // Direction-specific repeat entry points. A verified alignment can cross
-    // proto boundaries through unique seeds and unchanged exact two-copy
-    // mapping runs; every new occurrence-set entry remains a stopping point.
+    // proto boundaries through unique seeds and complete oriented occurrence
+    // coverage. Copies may disappear; each new mapping remains a stopping point.
     reference_repeats: Vec<u64>,
     reference_repeats_reverse: Vec<u64>,
     groups: Vec<RepeatedPosition>,
@@ -256,9 +256,10 @@ fn refine(
 
 impl RestrictionIndex {
     // A normalized oriented edge is used at most once by each copy of
-    // either distinct endpoint group. Equal edge/group counts therefore prove
-    // an exact bijection of the complete reference occurrence sets. This is
-    // full-key equality, not a probabilistic occurrence-set fingerprint.
+    // either distinct endpoint group. Matching the target group's complete
+    // count proves every target copy continues from a source copy. A scan may
+    // cross losses, but must stop before any new oriented mapping enters.
+    // This uses full-key equality, not an occurrence-set fingerprint.
     fn coalesce_multi_copy_runs(
         copies: &[(usize, u64)],
         positions: &[u64],
@@ -291,9 +292,10 @@ impl RestrictionIndex {
                 blocked[adjacent[1].1 >> 1] = true;
             }
         }
-        // v21 already handles exact pairs. Omit those and every ambiguous
-        // physical entry from the transient multi-copy adjacency graph.
-        entries.retain(|&(_, encoded)| counts[encoded >> 1] > 2 && !blocked[encoded >> 1]);
+        // Include pairs too: transitions between repeat multiplicities can
+        // preserve coverage in one direction. Conflicting physical entries
+        // cannot establish an injective correspondence and stay blocked.
+        entries.retain(|&(_, encoded)| !blocked[encoded >> 1]);
         let mut edges = FxHashMap::<(usize, usize), usize>::default();
         for adjacent in entries.windows(2) {
             let (a, b) = (adjacent[0], adjacent[1]);
@@ -313,15 +315,17 @@ impl RestrictionIndex {
                 continue;
             };
             let count = edges[&key];
-            if count == counts[a.1 >> 1] && count == counts[b.1 >> 1] {
+            if count == counts[b.1 >> 1] {
                 let mask = 1 << (b.0 % 64);
                 coalesced += usize::from(forward[b.0 / 64] & mask != 0);
                 forward[b.0 / 64] &= !mask;
+            }
+            if count == counts[a.1 >> 1] {
                 reverse[a.0 / 64] &= !(1 << (a.0 % 64));
             }
         }
         eprintln!(
-            "[multi_copy_reference_runs]\t{} reference copies\t{} oriented edges\t{} unchanged transitions",
+            "[multi_copy_reference_runs]\t{} reference copies\t{} oriented edges\t{} covered forward transitions",
             entries.len(),
             edges.len(),
             coalesced
@@ -754,7 +758,6 @@ impl RestrictionIndex {
     {
         let compact = index.compact.as_ref().unwrap();
         let mut stream = compact.query::<K>(&query.forward);
-        let mut cache = MonotonicAlignmentCache::default();
         let mut recent = RecentAlignments::default();
         for run in &query.runs {
             stream.reset();
@@ -798,10 +801,10 @@ impl RestrictionIndex {
                 let locations =
                     self.lookup(reference, bit, direction, &query.forward, pos, run.end, K);
                 // A failed right-context refinement has no anchor to emit.
-                // Its full occurrence set still permits a jump through an
-                // unchanged reference class, exactly as a constant proto run.
-                // The first differing DNA window and every class change are
-                // visited; no arbitrary shared right prefix is skipped.
+                // Complete occurrence coverage still permits a jump: every
+                // later mapping already exists at this seed, even if other
+                // copies disappear. The first differing DNA window and each
+                // new mapping are visited; no arbitrary prefix is skipped.
                 if locations.is_none() && present.is_none() && pos + K < run.end {
                     let group = self.positions[bit];
                     if group != NO_LOCATION && self.repeated[bit / 64] & (1 << (bit % 64)) != 0 {
@@ -865,10 +868,8 @@ impl RestrictionIndex {
                         start: origin + pos as u64,
                         reverse: v.reverse,
                     };
-                    let before = stats.alignments;
-                    let (left, right) = alignment_context_monotonic(
-                        reference, &anchor, query, hit, origin, &mut cache, stats,
-                    )?;
+                    let (left, right) =
+                        alignment_context_uncached(reference, &anchor, query, hit, origin, stats)?;
                     recent.remember(
                         slot,
                         diagonal,
@@ -882,9 +883,6 @@ impl RestrictionIndex {
                             reverse,
                             if reverse { left } else { right },
                         ));
-                    }
-                    if stats.alignments == before {
-                        continue;
                     }
                     sink.push(Record {
                         begin: v.physical - left,
@@ -987,7 +985,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn multi_copy_stop_maps_match_full_occurrence_set_oracle() {
+    fn multi_copy_stop_maps_match_full_occurrence_coverage_oracle() {
         let mut rng = 87654321u64;
         let core: Vec<_> = (0..1200)
             .map(|_| {
@@ -1077,22 +1075,24 @@ mod tests {
                 mappings.sort_unstable();
                 mappings
             };
-            let same_class = |a: usize, b: usize| {
+            let covered = |a: usize, b: usize| {
                 let Some(&(ga, _)) = physical.get(&a) else {
                     return false;
                 };
                 let Some(&(gb, _)) = physical.get(&b) else {
                     return false;
                 };
-                ga != gb
-                    && groups[ga].len() > 2
-                    && groups[gb].len() > 2
-                    && signature(a) == signature(b)
+                ga != gb && {
+                    let source = signature(a);
+                    signature(b)
+                        .into_iter()
+                        .all(|mapping| source.binary_search(&mapping).is_ok())
+                }
             };
             let mut merged = 0;
             for &p in physical.keys() {
-                let expected_forward = p == 0 || !same_class(p - 1, p);
-                let expected_reverse = !same_class(p, p + 1);
+                let expected_forward = p == 0 || !covered(p - 1, p);
+                let expected_reverse = !covered(p + 1, p);
                 assert_eq!(
                     forward[p / 64] & (1 << (p % 64)) != 0,
                     expected_forward,
@@ -1109,6 +1109,41 @@ mod tests {
                 assert!(merged > 100, "exercise full occurrence-class coalescing");
             }
         }
+    }
+
+    #[test]
+    fn reference_run_coverage_skips_copy_losses_but_visits_additions() {
+        // Three A copies, two B copies, then three C copies. The second
+        // chain is reverse-oriented: C- at 98, B- at 99, A- at 100.
+        let copies = [
+            (0, 20),
+            (0, 201),
+            (0, 400),
+            (1, 22),
+            (1, 199),
+            (2, 24),
+            (2, 197),
+            (2, 600),
+        ];
+        let mut forward = vec![u64::MAX; 5];
+        let mut reverse = forward.clone();
+        RestrictionIndex::coalesce_multi_copy_runs(
+            &copies,
+            &[0, 1, 2],
+            &[7],
+            3,
+            &mut forward,
+            &mut reverse,
+        );
+        let set = |map: &[u64], p: usize| map[p / 64] & (1 << (p % 64)) != 0;
+        assert!(!set(&forward, 11)); // A -> B loses a copy.
+        assert!(set(&reverse, 10)); // B -> A introduces a copy.
+        assert!(set(&forward, 12)); // B -> C introduces a copy.
+        assert!(!set(&reverse, 11)); // C -> B loses a copy.
+        assert!(!set(&forward, 99));
+        assert!(set(&reverse, 98));
+        assert!(set(&forward, 100));
+        assert!(!set(&reverse, 99));
     }
 
     #[test]
