@@ -1,15 +1,15 @@
 {
   "status": "complete",
-  "rust_variant": "v33",
+  "rust_variant": "v39",
   "scope": "real human chromosome 19 haplotypes; not whole genomes",
-  "rust_binary_sha256": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+  "rust_binary_sha256": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
   "rows": [
     {
       "status": "complete",
       "haplotypes": 2,
       "individuals": 2,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -22,7 +22,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -31,14 +31,14 @@
         "benchmarks/human/prepare.py": "a11d713ad565a5cb3038ed849839890dd4ecb60fede8b75ad660453a66aec03f"
       },
       "phases": {
-        "ggcat_build": 4.944674,
-        "proto_index": 1.209125,
-        "reference_scan": 1.528501,
-        "parallel_genome_scan_extend": 2.107853,
-        "parallel_context_reduce": 0.076078,
-        "parallel_dedup_output": 0.002979,
-        "locator_finalize": 0.000333,
-        "pipeline_total": 9.874113
+        "ggcat_build": 5.034699,
+        "proto_index": 1.216267,
+        "reference_scan": 1.597457,
+        "parallel_genome_scan_extend": 2.036855,
+        "parallel_context_reduce": 0.079489,
+        "parallel_dedup_output": 0.003293,
+        "locator_finalize": 0.000336,
+        "pipeline_total": 9.9734
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -60,7 +60,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-2"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-2/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-2/report.json.zst",
       "graph_seed_genomes": 2,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -73,14 +73,14 @@
       "cpp_cpu_system_seconds": 1.08,
       "cpp_cpu_seconds": 103.67999999999999,
       "cpp_peak_rss_gib": 2.5806732177734375,
-      "rust_seconds": 9.95069771600538,
-      "rust_cpu_user_seconds": 40.46,
-      "rust_cpu_system_seconds": 8.19,
-      "rust_cpu_seconds": 48.65,
-      "rust_peak_rss_gib": 2.4610748291015625,
-      "wall_speedup_cpp_over_rust": 10.432989929341053,
-      "cpu_factor_cpp_over_rust": 2.1311408016443987,
-      "ram_factor_cpp_over_rust": 1.0485959984871875,
+      "rust_seconds": 10.045191435987363,
+      "rust_cpu_user_seconds": 41.45,
+      "rust_cpu_system_seconds": 7.95,
+      "rust_cpu_seconds": 49.400000000000006,
+      "rust_peak_rss_gib": 2.330921173095703,
+      "wall_speedup_cpp_over_rust": 10.334848242819666,
+      "cpu_factor_cpp_over_rust": 2.098785425101214,
+      "ram_factor_cpp_over_rust": 1.1071473576886506,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -88,7 +88,7 @@
       "haplotypes": 4,
       "individuals": 4,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -101,7 +101,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -112,14 +112,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 4.760069,
-        "proto_index": 1.235438,
-        "reference_scan": 1.603227,
-        "parallel_genome_scan_extend": 2.53182,
-        "parallel_context_reduce": 0.11676,
-        "parallel_dedup_output": 0.006501,
-        "locator_finalize": 0.000484,
-        "pipeline_total": 10.262481
+        "ggcat_build": 4.828474,
+        "proto_index": 1.169943,
+        "reference_scan": 1.551037,
+        "parallel_genome_scan_extend": 2.451404,
+        "parallel_context_reduce": 0.107632,
+        "parallel_dedup_output": 0.006059,
+        "locator_finalize": 0.000455,
+        "pipeline_total": 10.121185
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -141,7 +141,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-4"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-4/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-4/report.json.zst",
       "graph_seed_genomes": 4,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -154,14 +154,14 @@
       "cpp_cpu_system_seconds": 4.15,
       "cpp_cpu_seconds": 372.90999999999997,
       "cpp_peak_rss_gib": 8.323307037353516,
-      "rust_seconds": 10.357524235994788,
-      "rust_cpu_user_seconds": 48.11,
-      "rust_cpu_system_seconds": 7.47,
-      "rust_cpu_seconds": 55.58,
-      "rust_peak_rss_gib": 2.630634307861328,
-      "wall_speedup_cpp_over_rust": 12.124267274759896,
-      "cpu_factor_cpp_over_rust": 6.7094278517452315,
-      "ram_factor_cpp_over_rust": 3.163992430449315,
+      "rust_seconds": 10.204978828987805,
+      "rust_cpu_user_seconds": 48.84,
+      "rust_cpu_system_seconds": 7.46,
+      "rust_cpu_seconds": 56.300000000000004,
+      "rust_peak_rss_gib": 2.5550689697265625,
+      "wall_speedup_cpp_over_rust": 12.305502465648884,
+      "cpu_factor_cpp_over_rust": 6.623623445825931,
+      "ram_factor_cpp_over_rust": 3.2575664829291306,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -169,7 +169,7 @@
       "haplotypes": 8,
       "individuals": 8,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -182,7 +182,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -193,14 +193,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 4.958877,
-        "proto_index": 1.146948,
-        "reference_scan": 1.733498,
-        "parallel_genome_scan_extend": 2.624419,
-        "parallel_context_reduce": 0.135222,
-        "parallel_dedup_output": 0.043797,
-        "locator_finalize": 0.000973,
-        "pipeline_total": 10.651272
+        "ggcat_build": 5.236714,
+        "proto_index": 1.130097,
+        "reference_scan": 1.599249,
+        "parallel_genome_scan_extend": 2.649687,
+        "parallel_context_reduce": 0.1434,
+        "parallel_dedup_output": 0.027067,
+        "locator_finalize": 0.0011,
+        "pipeline_total": 10.795942
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -222,7 +222,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-8"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-8/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-8/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -235,14 +235,14 @@
       "cpp_cpu_system_seconds": 10.68,
       "cpp_cpu_seconds": 1018.2099999999999,
       "cpp_peak_rss_gib": 19.340194702148438,
-      "rust_seconds": 10.713728254981106,
-      "rust_cpu_user_seconds": 65.89,
-      "rust_cpu_system_seconds": 8.1,
-      "rust_cpu_seconds": 73.99,
-      "rust_peak_rss_gib": 3.2342987060546875,
-      "wall_speedup_cpp_over_rust": 13.811051894303622,
-      "cpu_factor_cpp_over_rust": 13.761454250574403,
-      "ram_factor_cpp_over_rust": 5.9797181583578265,
+      "rust_seconds": 10.867117252986645,
+      "rust_cpu_user_seconds": 66.62,
+      "rust_cpu_system_seconds": 8.63,
+      "rust_cpu_seconds": 75.25,
+      "rust_peak_rss_gib": 3.2035064697265625,
+      "wall_speedup_cpp_over_rust": 13.616109356908296,
+      "cpu_factor_cpp_over_rust": 13.531029900332225,
+      "ram_factor_cpp_over_rust": 6.03719545595275,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -250,7 +250,7 @@
       "haplotypes": 16,
       "individuals": 16,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -263,7 +263,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -274,14 +274,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 5.033827,
-        "proto_index": 1.168013,
-        "reference_scan": 1.758956,
-        "parallel_genome_scan_extend": 3.902975,
-        "parallel_context_reduce": 0.182892,
-        "parallel_dedup_output": 0.026367,
-        "locator_finalize": 0.002157,
-        "pipeline_total": 12.086917
+        "ggcat_build": 5.035307,
+        "proto_index": 1.191557,
+        "reference_scan": 1.622899,
+        "parallel_genome_scan_extend": 3.59229,
+        "parallel_context_reduce": 0.191339,
+        "parallel_dedup_output": 0.026529,
+        "locator_finalize": 0.002078,
+        "pipeline_total": 11.673451
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -303,7 +303,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-16"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-16/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-16/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -316,14 +316,14 @@
       "cpp_cpu_system_seconds": 27.4,
       "cpp_cpu_seconds": 3022.01,
       "cpp_peak_rss_gib": 41.475425720214844,
-      "rust_seconds": 12.203111883020028,
-      "rust_cpu_user_seconds": 93.0,
-      "rust_cpu_system_seconds": 9.83,
-      "rust_cpu_seconds": 102.83,
-      "rust_peak_rss_gib": 5.107231140136719,
-      "wall_speedup_cpp_over_rust": 18.173525198159123,
-      "cpu_factor_cpp_over_rust": 29.38840805212487,
-      "ram_factor_cpp_over_rust": 8.12092199905888,
+      "rust_seconds": 11.80282233201433,
+      "rust_cpu_user_seconds": 92.69,
+      "rust_cpu_system_seconds": 9.87,
+      "rust_cpu_seconds": 102.56,
+      "rust_peak_rss_gib": 5.116954803466797,
+      "wall_speedup_cpp_over_rust": 18.789875426699787,
+      "cpu_factor_cpp_over_rust": 29.465776131045242,
+      "ram_factor_cpp_over_rust": 8.105489947285593,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -331,7 +331,7 @@
       "haplotypes": 32,
       "individuals": 32,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -344,7 +344,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -355,14 +355,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 5.087357,
-        "proto_index": 1.212695,
-        "reference_scan": 1.68717,
-        "parallel_genome_scan_extend": 4.558717,
-        "parallel_context_reduce": 0.239741,
-        "parallel_dedup_output": 0.051191,
-        "locator_finalize": 0.004161,
-        "pipeline_total": 12.857091
+        "ggcat_build": 5.215333,
+        "proto_index": 1.166533,
+        "reference_scan": 1.763616,
+        "parallel_genome_scan_extend": 4.557652,
+        "parallel_context_reduce": 0.244358,
+        "parallel_dedup_output": 0.054508,
+        "locator_finalize": 0.007902,
+        "pipeline_total": 13.030399
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -384,7 +384,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-32"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-32/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-32/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -397,14 +397,14 @@
       "cpp_cpu_system_seconds": 57.3,
       "cpp_cpu_seconds": 6393.35,
       "cpp_peak_rss_gib": 44.24470520019531,
-      "rust_seconds": 13.02189988901955,
-      "rust_cpu_user_seconds": 165.28,
-      "rust_cpu_system_seconds": 15.65,
-      "rust_cpu_seconds": 180.93,
-      "rust_peak_rss_gib": 9.213844299316406,
-      "wall_speedup_cpp_over_rust": 34.93417253726573,
-      "cpu_factor_cpp_over_rust": 35.33604156303543,
-      "ram_factor_cpp_over_rust": 4.801980993262271,
+      "rust_seconds": 13.19096634699963,
+      "rust_cpu_user_seconds": 161.08,
+      "rust_cpu_system_seconds": 15.85,
+      "rust_cpu_seconds": 176.93,
+      "rust_peak_rss_gib": 9.081718444824219,
+      "wall_speedup_cpp_over_rust": 34.48642696215221,
+      "cpu_factor_cpp_over_rust": 36.13491211213474,
+      "ram_factor_cpp_over_rust": 4.871842864211553,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -412,7 +412,7 @@
       "haplotypes": 64,
       "individuals": 64,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -425,7 +425,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -436,14 +436,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 5.237956,
-        "proto_index": 1.209398,
-        "reference_scan": 1.750817,
-        "parallel_genome_scan_extend": 9.334532,
-        "parallel_context_reduce": 0.399243,
-        "parallel_dedup_output": 0.12265,
-        "locator_finalize": 0.009176,
-        "pipeline_total": 18.087133
+        "ggcat_build": 5.066511,
+        "proto_index": 1.128501,
+        "reference_scan": 1.723985,
+        "parallel_genome_scan_extend": 9.306953,
+        "parallel_context_reduce": 0.375775,
+        "parallel_dedup_output": 0.116097,
+        "locator_finalize": 0.010023,
+        "pipeline_total": 17.751028
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -465,7 +465,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-64"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-64/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-64/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -478,14 +478,14 @@
       "cpp_cpu_system_seconds": 119.13,
       "cpp_cpu_seconds": 13076.849999999999,
       "cpp_peak_rss_gib": 44.62653350830078,
-      "rust_seconds": 18.240684315009275,
-      "rust_cpu_user_seconds": 296.29,
-      "rust_cpu_system_seconds": 18.39,
-      "rust_cpu_seconds": 314.68,
-      "rust_peak_rss_gib": 9.175670623779297,
-      "wall_speedup_cpp_over_rust": 47.62439217454053,
-      "cpu_factor_cpp_over_rust": 41.55602516842506,
-      "ram_factor_cpp_over_rust": 4.863571867177584,
+      "rust_seconds": 17.880457535007736,
+      "rust_cpu_user_seconds": 287.16,
+      "rust_cpu_system_seconds": 18.08,
+      "rust_cpu_seconds": 305.24,
+      "rust_peak_rss_gib": 9.55377197265625,
+      "wall_speedup_cpp_over_rust": 48.583852043449184,
+      "cpu_factor_cpp_over_rust": 42.841206919145584,
+      "ram_factor_cpp_over_rust": 4.6710905008017685,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -493,7 +493,7 @@
       "haplotypes": 128,
       "individuals": 128,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -506,7 +506,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -517,14 +517,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 5.226413,
-        "proto_index": 1.234495,
-        "reference_scan": 1.82398,
-        "parallel_genome_scan_extend": 18.418799,
-        "parallel_context_reduce": 0.665104,
-        "parallel_dedup_output": 0.290633,
-        "locator_finalize": 0.020919,
-        "pipeline_total": 27.72575
+        "ggcat_build": 5.128295,
+        "proto_index": 1.147865,
+        "reference_scan": 1.667057,
+        "parallel_genome_scan_extend": 17.602703,
+        "parallel_context_reduce": 0.646184,
+        "parallel_dedup_output": 0.272131,
+        "locator_finalize": 0.020706,
+        "pipeline_total": 26.524101
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -546,7 +546,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-128"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-128/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-128/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -559,14 +559,14 @@
       "cpp_cpu_system_seconds": 243.51,
       "cpp_cpu_seconds": 26275.719999999998,
       "cpp_peak_rss_gib": 45.83742904663086,
-      "rust_seconds": 27.89950271201087,
-      "rust_cpu_user_seconds": 555.84,
-      "rust_cpu_system_seconds": 23.34,
-      "rust_cpu_seconds": 579.1800000000001,
-      "rust_peak_rss_gib": 10.28030014038086,
-      "wall_speedup_cpp_over_rust": 62.26047676259082,
-      "cpu_factor_cpp_over_rust": 45.367105217721594,
-      "ram_factor_cpp_over_rust": 4.458763695680649,
+      "rust_seconds": 26.666021181008546,
+      "rust_cpu_user_seconds": 538.93,
+      "rust_cpu_system_seconds": 22.41,
+      "rust_cpu_seconds": 561.3399999999999,
+      "rust_peak_rss_gib": 9.564434051513672,
+      "wall_speedup_cpp_over_rust": 65.14043953156776,
+      "cpu_factor_cpp_over_rust": 46.808921509245735,
+      "ram_factor_cpp_over_rust": 4.792487333777643,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -574,7 +574,7 @@
       "haplotypes": 256,
       "individuals": 195,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -587,7 +587,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": false,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -598,14 +598,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 4.958276,
-        "proto_index": 1.191857,
-        "reference_scan": 1.849187,
-        "parallel_genome_scan_extend": 36.111604,
-        "parallel_context_reduce": 1.104724,
-        "parallel_dedup_output": 0.585515,
-        "locator_finalize": 0.044579,
-        "pipeline_total": 46.306827
+        "ggcat_build": 5.100178,
+        "proto_index": 1.167075,
+        "reference_scan": 1.595684,
+        "parallel_genome_scan_extend": 35.312729,
+        "parallel_context_reduce": 1.100109,
+        "parallel_dedup_output": 0.587096,
+        "locator_finalize": 0.043653,
+        "pipeline_total": 44.98375
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -627,7 +627,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v5/chr19-256"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-256/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-256/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -640,14 +640,14 @@
       "cpp_cpu_system_seconds": 488.44,
       "cpp_cpu_seconds": 52896.79,
       "cpp_peak_rss_gib": 46.4494743347168,
-      "rust_seconds": 46.453064302011626,
-      "rust_cpu_user_seconds": 1093.83,
-      "rust_cpu_system_seconds": 32.87,
-      "rust_cpu_seconds": 1126.6999999999998,
-      "rust_peak_rss_gib": 10.243854522705078,
-      "wall_speedup_cpp_over_rust": 74.58939053852602,
-      "cpu_factor_cpp_over_rust": 46.94842460282241,
-      "ram_factor_cpp_over_rust": 4.534374656704023,
+      "rust_seconds": 45.0841159170086,
+      "rust_cpu_user_seconds": 1075.61,
+      "rust_cpu_system_seconds": 32.31,
+      "rust_cpu_seconds": 1107.9199999999998,
+      "rust_peak_rss_gib": 10.203903198242188,
+      "wall_speedup_cpp_over_rust": 76.85424643376058,
+      "cpu_factor_cpp_over_rust": 47.74423243555492,
+      "ram_factor_cpp_over_rust": 4.552128085918983,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     },
     {
@@ -655,7 +655,7 @@
       "haplotypes": 512,
       "individuals": 276,
       "scope": "chromosome 19 only",
-      "rust_variant": "v33",
+      "rust_variant": "v39",
       "k": 63,
       "minimum_mum_length": 63,
       "both_strands": true,
@@ -668,7 +668,7 @@
       "cpp_result_reused": true,
       "rust_result_reused": true,
       "binaries": {
-        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v33": "440068c71b07fbb04cebd3400c522e06b0c51cd7b93e9b14232dd80b8baa260c",
+        "artifacts/optimized-human-20261018/binaries/mumento2-sshash-v39": "3cf492bdd3b92fc80747731d4ea06c501af29d6dec042d4abf4f416c9a35f4f1",
         "artifacts/optimized-20261018/binaries/ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
         "mumemto/build/src/mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491",
         "k2rmini/target/release/examples/benchmark_fasta": "73bb21e587e41d1664a4db132588eca2b7d1d4a032ddafd9964a6010bd959b6c",
@@ -679,14 +679,14 @@
         "benchmarks/human/parallel_cpp.py": "383e24d761d1242c6c01bd2172f1b279b3f864aaf645e959d9dfc92eb24c2237"
       },
       "phases": {
-        "ggcat_build": 5.058859,
-        "proto_index": 1.499123,
-        "reference_scan": 1.659774,
-        "parallel_genome_scan_extend": 74.623633,
-        "parallel_context_reduce": 2.217649,
-        "parallel_dedup_output": 1.280296,
-        "locator_finalize": 0.094446,
-        "pipeline_total": 86.622124
+        "ggcat_build": 5.190037,
+        "proto_index": 1.355615,
+        "reference_scan": 1.764481,
+        "parallel_genome_scan_extend": 72.657909,
+        "parallel_context_reduce": 2.232778,
+        "parallel_dedup_output": 1.310398,
+        "locator_finalize": 0.093545,
+        "pipeline_total": 84.792189
       },
       "rust_validation": {
         "sequence_or_coordinate_errors": 0,
@@ -708,7 +708,7 @@
         "evidence": "Exact normalized row-set equality to independently validated C++ output",
         "validated_source": "/home/nadine/code/mumento2/benchmarks/human/optimization-sshash-20261018/v8/chr19-512"
       },
-      "report_path": "benchmarks/human/optimization-sshash-20261018/v33/chr19-512/report.json.zst",
+      "report_path": "benchmarks/human/optimization-sshash-20261018/v39/chr19-512/report.json.zst",
       "graph_seed_genomes": 8,
       "runtime_environment": {
         "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -721,20 +721,20 @@
       "cpp_cpu_system_seconds": 995.15,
       "cpp_cpu_seconds": 106287.82999999999,
       "cpp_peak_rss_gib": 46.22624969482422,
-      "rust_seconds": 86.79616335898754,
-      "rust_cpu_user_seconds": 2273.76,
-      "rust_cpu_system_seconds": 61.73,
-      "rust_cpu_seconds": 2335.4900000000002,
-      "rust_peak_rss_gib": 9.972244262695312,
-      "wall_speedup_cpp_over_rust": 79.85715966187678,
-      "cpu_factor_cpp_over_rust": 45.509863026602545,
-      "ram_factor_cpp_over_rust": 4.635491116854183,
+      "rust_seconds": 84.91596854201634,
+      "rust_cpu_user_seconds": 2215.61,
+      "rust_cpu_system_seconds": 59.47,
+      "rust_cpu_seconds": 2275.08,
+      "rust_peak_rss_gib": 9.797622680664062,
+      "wall_speedup_cpp_over_rust": 81.62534319993546,
+      "cpu_factor_cpp_over_rust": 46.718282434024296,
+      "ram_factor_cpp_over_rust": 4.718108790416402,
       "allocator_package": "libmimalloc3 3.2.8+ds-2"
     }
   ],
   "methodology": [
-    "Latest v33 frozen executable at every size; one measured run per size.",
-    "All C++ measurements reused; existing v33 512 measurement reused; no C++ executable launched.",
+    "Latest v39 frozen executable at every size; one measured run per size.",
+    "All C++ measurements reused; existing v39 512 measurement reused; no C++ executable launched.",
     "k=63; minimum MUM length=63; both strands; presence required in all input haplotypes.",
     "Ratios are C++ divided by Rust. Above 1 means Rust is faster or uses less CPU/RAM; below 1 means the opposite.",
     "Rust requests 32 threads. C++ historical workers: 1,3,7,15 at 2,4,8,16 inputs;16 from32 inputs onward due48GiB cap.",
@@ -742,7 +742,7 @@
     "Builds, downloads, staging and validation excluded; whole graph/index/scan/reduce/output pipeline included.",
     "Each output matches full independently validated C++ rows. Inherited audit requires exact full row-set equality.",
     "Single observations, not statistical performance estimates.",
-    "Human LLVM PGO:32 chromosome19 haplotypes,one training thread; performance measurements use32threads. Dictionary m=min(23,k-1). Graph seeds=min(8,inputcount). Process-local mimalloc3.2.8 preload; DLL fingerprint recorded. Source and compiler pinned."
+    "Human LLVM PGO:32 chromosome19 haplotypes,one training thread; measured runs use32threads. Dictionary m=31 at k63; m=min(23,k-1) otherwise. Graph seeds=min(8,inputcount). Allocator preload=/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2. Source, compiler, executable and compilation-profile fingerprints recorded."
   ],
   "rust_build_configuration": {
     "profile": "release",
@@ -751,10 +751,10 @@
     "lto": "fat",
     "codegen_units": 1,
     "panic": "abort",
-    "human_pgo_profile": "artifacts/optimized-human-20261018/pgo-v30-single32/e382bd5405c51b8ebe7b89771062b5757e605275691852b4729d3fba9cdd9c5f.profdata",
-    "human_pgo_profile_sha256": "e382bd5405c51b8ebe7b89771062b5757e605275691852b4729d3fba9cdd9c5f",
-    "human_pgo_metadata": "artifacts/optimized-human-20261018/pgo-v30-single32/metadata.json",
-    "human_pgo_training_report": "benchmarks/human/optimization-sshash-20261018/human-pgo-v30-training32-single/chr19-32/report.json.zst"
+    "human_pgo_profile": "artifacts/optimized-human-20261018/pgo-v37-single32/abbd69ba0fd141704cbff50fb43a3f9d5fc8fbfc66f681a9dc71224757424d80.profdata",
+    "human_pgo_profile_sha256": "abbd69ba0fd141704cbff50fb43a3f9d5fc8fbfc66f681a9dc71224757424d80",
+    "human_pgo_metadata": "artifacts/optimized-human-20261018/pgo-v37-single32/metadata.json",
+    "human_pgo_training_report": "benchmarks/human/optimization-sshash-20261018/human-pgo-v37-training32-single/chr19-32/report.json.zst"
   },
   "runtime_environment": {
     "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2"
@@ -763,9 +763,9 @@
     "/usr/lib/x86_64-linux-gnu/libmimalloc.so.3.2": "f5b823dd9f90f8d2d2d574b7ad9009d5f6febba8f50e95d3b3f9db60ef28fd55"
   },
   "graph_seed_genomes_maximum": 8,
-  "source_commit": "b6f1dffa2a54b2e1712298df56ddb465d3b0df28",
-  "source_url": "https://github.com/Malfoy/Mumento2/commit/b6f1dffa2a54b2e1712298df56ddb465d3b0df28",
-  "source_snapshot": "benchmarks/human/optimization-sshash-20261018/candidate-v33.json",
+  "source_commit": "9bd20aaf1460390a2cf2a63df4c73da2a25d4307",
+  "source_url": "https://github.com/Malfoy/Mumento2/commit/9bd20aaf1460390a2cf2a63df4c73da2a25d4307",
+  "source_snapshot": "benchmarks/human/optimization-sshash-20261018/candidate-v39.json",
   "human_profile": "profiles/mumento2-human-chr19-llvm22.profdata",
   "human_profile_metadata": "profiles/mumento2-human-chr19-llvm22.json",
   "allocator_package": "libmimalloc3 3.2.8+ds-2"
