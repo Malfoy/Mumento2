@@ -1,0 +1,1982 @@
+{
+  "created_utc": "2026-10-18T09:49:22.399966+00:00",
+  "source_commit": "11bf77a054212286d1a3318a4fc3364f2429e0da",
+  "scope": "Real HPRC Release 2 chromosome 19 haplotypes; not whole human genomes. Uniqueness is within the chromosome inputs, not genome-wide.",
+  "paper": "https://doi.org/10.1186/s13059-025-03644-0",
+  "paper_relation": "The paper includes chr19 scaling. This uses newer Release 2 assemblies and C++ 1.4.2, not its exact older scaffolded panel or C++ 1.1.1.",
+  "dataset_index": "https://raw.githubusercontent.com/human-pangenomics/hprc_intermediate_assembly/main/data_tables/assemblies_release2_v1.0.index.csv",
+  "selection": "Nested prefixes in sample ID order; one haplotype 1 per individual; unique chr19 alias and FAI record, length 40-90 Mb; 64 eligible records frozen before the eight-input benchmark",
+  "eligibility_screen": {
+    "criterion": "One haplotype 1 per distinct individual, lexicographic sample order; unique chromosome-19 alias and FAI record, length 40-90 Mb",
+    "eligible_selected": 64,
+    "screened": [
+      {
+        "sample": "HG00097",
+        "accession": "GCA_044165215.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/165/215/GCA_044165215.1/GCA_044165215.1.chromAlias.txt",
+        "contig": "HG00097#1#CM094070.1",
+        "bases": 61077493
+      },
+      {
+        "sample": "HG00099",
+        "accession": "GCA_042032525.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/032/525/GCA_042032525.1/GCA_042032525.1.chromAlias.txt",
+        "contig": "HG00099#1#CM087326.1",
+        "bases": 62336960
+      },
+      {
+        "sample": "HG00126",
+        "accession": "GCA_042078065.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/078/065/GCA_042078065.1/GCA_042078065.1.chromAlias.txt",
+        "contig": "HG00126#1#CM090118.1",
+        "bases": 61924483
+      },
+      {
+        "sample": "HG00128",
+        "accession": "GCA_042078025.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/078/025/GCA_042078025.1/GCA_042078025.1.chromAlias.txt",
+        "contig": "HG00128#1#CM090090.1",
+        "bases": 60445756
+      },
+      {
+        "sample": "HG00133",
+        "accession": "GCA_042078005.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/078/005/GCA_042078005.1/GCA_042078005.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG00140",
+        "accession": "GCA_042031265.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/031/265/GCA_042031265.1/GCA_042031265.1.chromAlias.txt",
+        "contig": "HG00140#1#CM087120.1",
+        "bases": 61951028
+      },
+      {
+        "sample": "HG00146",
+        "accession": "GCA_042077995.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/995/GCA_042077995.1/GCA_042077995.1.chromAlias.txt",
+        "contig": "HG00146#1#CM090020.1",
+        "bases": 60059791
+      },
+      {
+        "sample": "HG002",
+        "accession": "GCA_018852605.3",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/852/605/GCA_018852605.3/GCA_018852605.3.chromAlias.txt",
+        "reason": "No unique matching chromosome-19 FAI record"
+      },
+      {
+        "sample": "HG00232",
+        "accession": "GCA_042077985.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/985/GCA_042077985.1/GCA_042077985.1.chromAlias.txt",
+        "contig": "HG00232#1#CM090000.1",
+        "bases": 60318481
+      },
+      {
+        "sample": "HG00235",
+        "accession": "GCA_044165645.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/165/645/GCA_044165645.1/GCA_044165645.1.chromAlias.txt",
+        "contig": "HG00235#1#CM094378.1",
+        "bases": 61759272
+      },
+      {
+        "sample": "HG00253",
+        "accession": "GCA_044166805.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/805/GCA_044166805.1/GCA_044166805.1.chromAlias.txt",
+        "contig": "HG00253#1#CM094466.1",
+        "bases": 62260376
+      },
+      {
+        "sample": "HG00272",
+        "accession": "GCA_044166515.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/515/GCA_044166515.1/GCA_044166515.1.chromAlias.txt",
+        "contig": "HG00272#1#CM094199.1",
+        "bases": 61221721
+      },
+      {
+        "sample": "HG00280",
+        "accession": "GCA_042031275.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/031/275/GCA_042031275.1/GCA_042031275.1.chromAlias.txt",
+        "contig": "HG00280#1#CM087157.1",
+        "bases": 62168755
+      },
+      {
+        "sample": "HG00290",
+        "accession": "GCA_042077965.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/965/GCA_042077965.1/GCA_042077965.1.chromAlias.txt",
+        "contig": "HG00290#1#CM089990.1",
+        "bases": 61006069
+      },
+      {
+        "sample": "HG00320",
+        "accession": "GCA_042077865.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/865/GCA_042077865.1/GCA_042077865.1.chromAlias.txt",
+        "contig": "HG00320#1#CM089959.1",
+        "bases": 61987789
+      },
+      {
+        "sample": "HG00321",
+        "accession": "GCA_042077015.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/015/GCA_042077015.1/GCA_042077015.1.chromAlias.txt",
+        "contig": "HG00321#1#CM089551.1",
+        "bases": 60983011
+      },
+      {
+        "sample": "HG00323",
+        "accession": "GCA_042032465.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/032/465/GCA_042032465.1/GCA_042032465.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG00329",
+        "accession": "GCA_044166575.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/575/GCA_044166575.1/GCA_044166575.1.chromAlias.txt",
+        "contig": "HG00329#1#CM094236.1",
+        "bases": 60473049
+      },
+      {
+        "sample": "HG00344",
+        "accession": "GCA_044166765.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/765/GCA_044166765.1/GCA_044166765.1.chromAlias.txt",
+        "contig": "HG00344#1#CM094509.1",
+        "bases": 62001390
+      },
+      {
+        "sample": "HG00350",
+        "accession": "GCA_044167235.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/167/235/GCA_044167235.1/GCA_044167235.1.chromAlias.txt",
+        "contig": "HG00350#1#CM094479.1",
+        "bases": 61981818
+      },
+      {
+        "sample": "HG00408",
+        "accession": "GCA_041900255.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/255/GCA_041900255.1/GCA_041900255.1.chromAlias.txt",
+        "contig": "HG00408#1#CM085963.1",
+        "bases": 61061584
+      },
+      {
+        "sample": "HG00423",
+        "accession": "GCA_042076665.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/076/665/GCA_042076665.1/GCA_042076665.1.chromAlias.txt",
+        "contig": "HG00423#1#CM089409.1",
+        "bases": 61651182
+      },
+      {
+        "sample": "HG00438",
+        "accession": "GCA_018472595.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/595/GCA_018472595.2/GCA_018472595.2.chromAlias.txt",
+        "contig": "HG00438#1#CM089182.1",
+        "bases": 60966508
+      },
+      {
+        "sample": "HG005",
+        "accession": "GCA_018506945.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/506/945/GCA_018506945.2/GCA_018506945.2.chromAlias.txt",
+        "contig": "HG005#1#CM099993.1",
+        "bases": 60960980
+      },
+      {
+        "sample": "HG00544",
+        "accession": "GCA_042076675.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/076/675/GCA_042076675.1/GCA_042076675.1.chromAlias.txt",
+        "contig": "HG00544#1#CM089379.1",
+        "bases": 61072110
+      },
+      {
+        "sample": "HG00558",
+        "accession": "GCA_042037725.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/725/GCA_042037725.1/GCA_042037725.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG00597",
+        "accession": "GCA_041900365.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/365/GCA_041900365.1/GCA_041900365.1.chromAlias.txt",
+        "contig": "HG00597#1#CM085776.1",
+        "bases": 62199542
+      },
+      {
+        "sample": "HG00609",
+        "accession": "GCA_042027545.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/027/545/GCA_042027545.1/GCA_042027545.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG00621",
+        "accession": "GCA_018472575.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/575/GCA_018472575.2/GCA_018472575.2.chromAlias.txt",
+        "contig": "HG00621#1#CM087860.1",
+        "bases": 61553647
+      },
+      {
+        "sample": "HG00639",
+        "accession": "GCA_042037765.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/765/GCA_042037765.1/GCA_042037765.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG00642",
+        "accession": "GCA_042028805.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/805/GCA_042028805.1/GCA_042028805.1.chromAlias.txt",
+        "contig": "HG00642#1#CM086615.1",
+        "bases": 60360452
+      },
+      {
+        "sample": "HG00658",
+        "accession": "GCA_042037975.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/975/GCA_042037975.1/GCA_042037975.1.chromAlias.txt",
+        "contig": "HG00658#1#CM088784.1",
+        "bases": 60719003
+      },
+      {
+        "sample": "HG00673",
+        "accession": "GCA_018472585.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/585/GCA_018472585.2/GCA_018472585.2.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG00706",
+        "accession": "GCA_046116065.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/046/116/065/GCA_046116065.1/GCA_046116065.1.chromAlias.txt",
+        "contig": "HG00706#1#CM100023.1",
+        "bases": 61215485
+      },
+      {
+        "sample": "HG00733",
+        "accession": "GCA_018506955.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/506/955/GCA_018506955.2/GCA_018506955.2.chromAlias.txt",
+        "contig": "HG00733#1#CM099638.1",
+        "bases": 61960023
+      },
+      {
+        "sample": "HG00735",
+        "accession": "GCA_018472715.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/715/GCA_018472715.2/GCA_018472715.2.chromAlias.txt",
+        "contig": "HG00735#1#CM087885.1",
+        "bases": 60471226
+      },
+      {
+        "sample": "HG00738",
+        "accession": "GCA_042028835.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/835/GCA_042028835.1/GCA_042028835.1.chromAlias.txt",
+        "contig": "HG00738#1#CM086654.1",
+        "bases": 60877128
+      },
+      {
+        "sample": "HG00741",
+        "accession": "GCA_018471105.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/471/105/GCA_018471105.2/GCA_018471105.2.chromAlias.txt",
+        "contig": "HG00741#1#CM087906.1",
+        "bases": 61958172
+      },
+      {
+        "sample": "HG01071",
+        "accession": "GCA_018472725.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/725/GCA_018472725.2/GCA_018472725.2.chromAlias.txt",
+        "contig": "HG01071#1#CM089124.1",
+        "bases": 61474163
+      },
+      {
+        "sample": "HG01074",
+        "accession": "GCA_042037995.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/995/GCA_042037995.1/GCA_042037995.1.chromAlias.txt",
+        "contig": "HG01074#1#CM088794.1",
+        "bases": 62109177
+      },
+      {
+        "sample": "HG01081",
+        "accession": "GCA_042037825.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/825/GCA_042037825.1/GCA_042037825.1.chromAlias.txt",
+        "contig": "HG01081#1#CM088577.1",
+        "bases": 61089514
+      },
+      {
+        "sample": "HG01099",
+        "accession": "GCA_042027475.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/027/475/GCA_042027475.1/GCA_042027475.1.chromAlias.txt",
+        "contig": "HG01099#1#CM086268.1",
+        "bases": 61451983
+      },
+      {
+        "sample": "HG01106",
+        "accession": "GCA_018471075.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/471/075/GCA_018471075.2/GCA_018471075.2.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01109",
+        "accession": "GCA_018504645.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/504/645/GCA_018504645.2/GCA_018504645.2.chromAlias.txt",
+        "contig": "HG01109#1#CM092095.1",
+        "bases": 61422232
+      },
+      {
+        "sample": "HG01123",
+        "accession": "GCA_018469695.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/469/695/GCA_018469695.2/GCA_018469695.2.chromAlias.txt",
+        "contig": "HG01123#1#CM089091.1",
+        "bases": 61184526
+      },
+      {
+        "sample": "HG01150",
+        "accession": "GCA_042037855.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/855/GCA_042037855.1/GCA_042037855.1.chromAlias.txt",
+        "contig": "HG01150#1#CM088608.1",
+        "bases": 61482345
+      },
+      {
+        "sample": "HG01167",
+        "accession": "GCA_044167135.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/167/135/GCA_044167135.1/GCA_044167135.1.chromAlias.txt",
+        "contig": "HG01167#1#CM094536.1",
+        "bases": 64067022
+      },
+      {
+        "sample": "HG01175",
+        "accession": "GCA_018471065.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/471/065/GCA_018471065.2/GCA_018471065.2.chromAlias.txt",
+        "contig": "HG01175#1#CM087933.1",
+        "bases": 64163585
+      },
+      {
+        "sample": "HG01192",
+        "accession": "GCA_041900145.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/145/GCA_041900145.1/GCA_041900145.1.chromAlias.txt",
+        "contig": "HG01192#1#CM085937.1",
+        "bases": 59746770
+      },
+      {
+        "sample": "HG01243",
+        "accession": "GCA_018504045.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/504/045/GCA_018504045.2/GCA_018504045.2.chromAlias.txt",
+        "contig": "HG01243#1#CM099611.1",
+        "bases": 59740550
+      },
+      {
+        "sample": "HG01252",
+        "accession": "GCA_042038865.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/038/865/GCA_042038865.1/GCA_042038865.1.chromAlias.txt",
+        "contig": "HG01252#1#CM088833.1",
+        "bases": 62423868
+      },
+      {
+        "sample": "HG01255",
+        "accession": "GCA_042029915.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/029/915/GCA_042029915.1/GCA_042029915.1.chromAlias.txt",
+        "contig": "HG01255#1#CM086715.1",
+        "bases": 60957360
+      },
+      {
+        "sample": "HG01258",
+        "accession": "GCA_018469675.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/469/675/GCA_018469675.2/GCA_018469675.2.chromAlias.txt",
+        "contig": "HG01258#1#CM088122.1",
+        "bases": 62031599
+      },
+      {
+        "sample": "HG01261",
+        "accession": "GCA_041900235.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/235/GCA_041900235.1/GCA_041900235.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01346",
+        "accession": "GCA_042028795.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/795/GCA_042028795.1/GCA_042028795.1.chromAlias.txt",
+        "contig": "HG01346#1#CM086594.1",
+        "bases": 61813040
+      },
+      {
+        "sample": "HG01358",
+        "accession": "GCA_018469965.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/469/965/GCA_018469965.2/GCA_018469965.2.chromAlias.txt",
+        "contig": "HG01358#1#CM089063.1",
+        "bases": 62103869
+      },
+      {
+        "sample": "HG01361",
+        "accession": "GCA_018469705.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/469/705/GCA_018469705.2/GCA_018469705.2.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01433",
+        "accession": "GCA_042028645.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/645/GCA_042028645.1/GCA_042028645.1.chromAlias.txt",
+        "contig": "HG01433#1#CM086489.1",
+        "bases": 61517915
+      },
+      {
+        "sample": "HG01496",
+        "accession": "GCA_042027595.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/027/595/GCA_042027595.1/GCA_042027595.1.chromAlias.txt",
+        "contig": "HG01496#1#CM086382.1",
+        "bases": 62254873
+      },
+      {
+        "sample": "HG01530",
+        "accession": "GCA_042034285.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/034/285/GCA_042034285.1/GCA_042034285.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01784",
+        "accession": "GCA_042034305.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/034/305/GCA_042034305.1/GCA_042034305.1.chromAlias.txt",
+        "contig": "HG01784#1#CM087578.1",
+        "bases": 61992536
+      },
+      {
+        "sample": "HG01786",
+        "accession": "GCA_042076995.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/076/995/GCA_042076995.1/GCA_042076995.1.chromAlias.txt",
+        "contig": "HG01786#1#CM089511.1",
+        "bases": 61310716
+      },
+      {
+        "sample": "HG01884",
+        "accession": "GCA_042028275.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/275/GCA_042028275.1/GCA_042028275.1.chromAlias.txt",
+        "contig": "HG01884#1#CM086414.1",
+        "bases": 62148846
+      },
+      {
+        "sample": "HG01891",
+        "accession": "GCA_018467165.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/467/165/GCA_018467165.2/GCA_018467165.2.chromAlias.txt",
+        "contig": "HG01891#1#CM088190.1",
+        "bases": 61012003
+      },
+      {
+        "sample": "HG01928",
+        "accession": "GCA_018472705.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/705/GCA_018472705.2/GCA_018472705.2.chromAlias.txt",
+        "contig": "HG01928#1#CM088998.1",
+        "bases": 60438415
+      },
+      {
+        "sample": "HG01934",
+        "accession": "GCA_042038875.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/038/875/GCA_042038875.1/GCA_042038875.1.chromAlias.txt",
+        "contig": "HG01934#1#CM088850.1",
+        "bases": 61582084
+      },
+      {
+        "sample": "HG01940",
+        "accession": "GCA_042037875.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/875/GCA_042037875.1/GCA_042037875.1.chromAlias.txt",
+        "contig": "HG01940#1#CM088641.1",
+        "bases": 63143583
+      },
+      {
+        "sample": "HG01943",
+        "accession": "GCA_042076525.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/076/525/GCA_042076525.1/GCA_042076525.1.chromAlias.txt",
+        "contig": "HG01943#1#CM089359.1",
+        "bases": 61542429
+      },
+      {
+        "sample": "HG01952",
+        "accession": "GCA_018471555.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/471/555/GCA_018471555.2/GCA_018471555.2.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01960",
+        "accession": "GCA_042037895.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/895/GCA_042037895.1/GCA_042037895.1.chromAlias.txt",
+        "contig": "HG01960#1#CM088654.1",
+        "bases": 59274230
+      },
+      {
+        "sample": "HG01969",
+        "accession": "GCA_042037885.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/885/GCA_042037885.1/GCA_042037885.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01975",
+        "accession": "GCA_046000135.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/046/000/135/GCA_046000135.1/GCA_046000135.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG01978",
+        "accession": "GCA_018472845.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/845/GCA_018472845.2/GCA_018472845.2.chromAlias.txt",
+        "reason": "No unique matching chromosome-19 FAI record"
+      },
+      {
+        "sample": "HG01981",
+        "accession": "GCA_042027505.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/027/505/GCA_042027505.1/GCA_042027505.1.chromAlias.txt",
+        "contig": "HG01981#1#CM086330.1",
+        "bases": 62296494
+      },
+      {
+        "sample": "HG01993",
+        "accession": "GCA_042028705.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/705/GCA_042028705.1/GCA_042028705.1.chromAlias.txt",
+        "contig": "HG01993#1#CM086503.1",
+        "bases": 61962514
+      },
+      {
+        "sample": "HG02004",
+        "accession": "GCA_042027455.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/027/455/GCA_042027455.1/GCA_042027455.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG02015",
+        "accession": "GCA_041900165.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/165/GCA_041900165.1/GCA_041900165.1.chromAlias.txt",
+        "contig": "HG02015#1#CM085896.1",
+        "bases": 61217153
+      },
+      {
+        "sample": "HG02027",
+        "accession": "GCA_042030215.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/030/215/GCA_042030215.1/GCA_042030215.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG02040",
+        "accession": "GCA_042032555.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/032/555/GCA_042032555.1/GCA_042032555.1.chromAlias.txt",
+        "contig": "HG02040#1#CM087382.1",
+        "bases": 59662296
+      },
+      {
+        "sample": "HG02055",
+        "accession": "GCA_018505855.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/505/855/GCA_018505855.2/GCA_018505855.2.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG02056",
+        "accession": "GCA_041900085.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/085/GCA_041900085.1/GCA_041900085.1.chromAlias.txt",
+        "contig": "HG02056#1#CM085878.1",
+        "bases": 61848867
+      },
+      {
+        "sample": "HG02071",
+        "accession": "GCA_042036435.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/036/435/GCA_042036435.1/GCA_042036435.1.chromAlias.txt",
+        "contig": "HG02071#1#CM088267.1",
+        "bases": 61299791
+      },
+      {
+        "sample": "HG02074",
+        "accession": "GCA_042036445.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/036/445/GCA_042036445.1/GCA_042036445.1.chromAlias.txt",
+        "contig": "HG02074#1#CM088278.1",
+        "bases": 60397238
+      },
+      {
+        "sample": "HG02080",
+        "accession": "GCA_018504055.2",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/504/055/GCA_018504055.2/GCA_018504055.2.chromAlias.txt",
+        "contig": "HG02080#1#CM092070.1",
+        "bases": 61033181
+      },
+      {
+        "sample": "HG02083",
+        "accession": "GCA_042030135.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/030/135/GCA_042030135.1/GCA_042030135.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG02109",
+        "accession": "GCA_018505865.2",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/505/865/GCA_018505865.2/GCA_018505865.2.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      },
+      {
+        "sample": "HG02129",
+        "accession": "GCA_041899985.1",
+        "eligible": true,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/899/985/GCA_041899985.1/GCA_041899985.1.chromAlias.txt",
+        "contig": "HG02129#1#CM085857.1",
+        "bases": 60858221
+      },
+      {
+        "sample": "HG02132",
+        "accession": "GCA_042030125.1",
+        "eligible": false,
+        "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/030/125/GCA_042030125.1/GCA_042030125.1.chromAlias.txt",
+        "reason": "No unique chromosome-19 alias (unassigned or split assembly)"
+      }
+    ]
+  },
+  "extraction": "Official FAI/GZI and assembly-specific UCSC aliases; HTTP Range BGZF blocks bound to ETag, CRC checked; extracted lengths, alphabet and FASTA SHA256 verified",
+  "parameters": {
+    "rust_k": 63,
+    "minimum_MUM_length": 63,
+    "strands": "both",
+    "presence": "all inputs",
+    "measured_runs_per_configuration": 1,
+    "cpu_budget": 32,
+    "timeout_seconds": 600,
+    "memory_limit_gib": 48,
+    "ggcat_minimizer_length": 10,
+    "buckets_log2": 8,
+    "ggcat_memory_suggestion_gib": 1
+  },
+  "cpp_execution": "Single-threaded optimized core at two inputs; up to min(32,N-1) concurrent anchor partitions thereafter, upstream C++ anchor merger and minimum-length filter included in timing",
+  "rust_execution": "Frozen previously fastest bacterial PGO executable; native 32 threads requested; no human-specific retraining or algorithm changes",
+  "optimization": {
+    "rust": "opt-level=3, native CPU, fat LTO, one codegen unit, PGO",
+    "cpp": [
+      "-O3",
+      "-DNDEBUG",
+      "-march=native",
+      "-funroll-loops"
+    ]
+  },
+  "hardware": {
+    "cpu": "Intel Core i9-13950HX",
+    "logical_cpus": 32,
+    "ram_gib_approx": 61,
+    "storage": "Local NVMe; plain FASTA input staging"
+  },
+  "timing": "Tool wall time including graph/index/scan/merge/output. Download, staging, archival and validation excluded. Inputs warmed after sync. No download or compilation overlaps measured runs.",
+  "memory": "Completed peak is max(GNU time maximum process RSS, 20 ms sampled process-tree RSS sum). Sampled failure RSS and lower-bound observations are labelled separately. Guard is a process-tree RSS budget, not total machine RAM.",
+  "validation": "Every reported completed MUM checked for DNA, coordinates, contig boundaries and joint maximality; independent overlapping Aho-Corasick occurrence counting on both strands. This establishes validity of reported C++ matches, not a proof of completeness.",
+  "equality": "No completed Rust human output exists; exact C++/Rust output agreement is unestablished. C++ self-comparison fields in raw harness files must not be interpreted as cross-tool agreement.",
+  "reference_bottleneck": {
+    "observed_seconds_lower_bound": 585.8909702301025,
+    "haplotypes": 4,
+    "evidence": "32 reference context files remained empty from construction to the late observation; source constructs them after read_reference and immediately before reference_contexts. This is phase evidence, not sampled stack profiling.",
+    "source": "k2rmini/src/locate/stream.rs: reference_contexts -> consume_fragment -> alignment_context",
+    "interpretation": "Repeated proto occurrences induce nested self-alignment work before parallel query scanning starts. Graph construction itself took about five seconds at k63."
+  },
+  "series_status": "resource-limit-reached",
+  "binaries_sha256": {
+    "mumento2-pgo": "6c97d7b75730b2e8649186a80aaad2a0fe74e9ea1d702e4e0a86d666a532fa98",
+    "ggcat": "6e08563c20d715be2046ba7df4f51ce861fc2a8afcb94d6e630e9b241294b632",
+    "mumemto_exec": "aee80a095d63df194d7cd25b77dafafed2ada539f10d8e54f2a29fd3888be491"
+  },
+  "main_series": [
+    {
+      "haplotypes": 2,
+      "total_bases": 123414453,
+      "tool": "mumemto",
+      "status": "complete",
+      "wall_seconds": 103.81552906100114,
+      "peak_process_tree_rss_gib": 2.5806732177734375,
+      "matches": 57456,
+      "reference_covered_bases": 55779947,
+      "validation": {
+        "sequence_or_coordinate_errors": 0,
+        "jointly_extendable": 0,
+        "all_unique": true,
+        "nonunique_or_absent_patterns": 0,
+        "nonunique_match_ids": [],
+        "examples": []
+      },
+      "actual_cpp_partition_workers": 1,
+      "mean_used_cpu_cores": 0.998694520345588,
+      "output_agreement_established": false,
+      "raw_report_sha256": "bade6986eb787ad3977f49985e2c2c2d39cf9542bc3a3171389df75782601fe1"
+    },
+    {
+      "haplotypes": 2,
+      "total_bases": 123414453,
+      "tool": "mumento2",
+      "status": "timeout",
+      "wall_seconds": null,
+      "matches": null,
+      "validation": null,
+      "time_limit_seconds": 600,
+      "wall_seconds_lower_bound": 600,
+      "memory_limit_gib": 48,
+      "output_agreement_established": false,
+      "full_peak_rss_available": false,
+      "observed_native_process_rss_lower_bound_gib": 10.403190612792969
+    },
+    {
+      "haplotypes": 4,
+      "total_bases": 245784692,
+      "tool": "mumemto",
+      "status": "complete",
+      "wall_seconds": 125.5773921420041,
+      "peak_process_tree_rss_gib": 8.323307037353516,
+      "matches": 91348,
+      "reference_covered_bases": 53595822,
+      "validation": {
+        "sequence_or_coordinate_errors": 0,
+        "jointly_extendable": 0,
+        "all_unique": true,
+        "nonunique_or_absent_patterns": 0,
+        "nonunique_match_ids": [],
+        "examples": []
+      },
+      "actual_cpp_partition_workers": 3,
+      "mean_used_cpu_cores": 2.9695631804354545,
+      "output_agreement_established": false,
+      "raw_report_sha256": "d71f6e5d3fb5e0b261de92cff932d1ab7e2cb8d6cd3b0db61f91ece64662f984"
+    },
+    {
+      "haplotypes": 4,
+      "total_bases": 245784692,
+      "tool": "mumento2",
+      "status": "timeout",
+      "wall_seconds": null,
+      "matches": null,
+      "validation": null,
+      "time_limit_seconds": 600,
+      "wall_seconds_lower_bound": 600,
+      "memory_limit_gib": 48,
+      "output_agreement_established": false,
+      "full_peak_rss_available": false,
+      "observed_native_process_rss_lower_bound_gib": 10.227710723876953
+    },
+    {
+      "haplotypes": 8,
+      "total_bases": 489873264,
+      "tool": "mumemto",
+      "status": "complete",
+      "wall_seconds": 147.96785691101104,
+      "peak_process_tree_rss_gib": 19.340194702148438,
+      "matches": 120060,
+      "reference_covered_bases": 52887851,
+      "validation": {
+        "sequence_or_coordinate_errors": 0,
+        "jointly_extendable": 0,
+        "all_unique": true,
+        "nonunique_or_absent_patterns": 0,
+        "nonunique_match_ids": [],
+        "examples": []
+      },
+      "actual_cpp_partition_workers": 7,
+      "mean_used_cpu_cores": 6.881291797125635,
+      "output_agreement_established": false,
+      "raw_report_sha256": "e7f4d51604ef58e576e4829a5d0fe16a64bcd7e4239f0197f8e13952666be15b"
+    },
+    {
+      "haplotypes": 8,
+      "total_bases": 489873264,
+      "tool": "mumento2",
+      "status": "timeout",
+      "wall_seconds": null,
+      "matches": null,
+      "validation": null,
+      "time_limit_seconds": 600,
+      "wall_seconds_lower_bound": 600,
+      "memory_limit_gib": 48,
+      "output_agreement_established": false,
+      "observed_native_process_peak_rss_gib": 10.296257019042969,
+      "rss_method": "Kernel VmHWM sampled every 0.5 seconds; final zombie samples do not erase the previous high-water mark."
+    },
+    {
+      "haplotypes": 16,
+      "total_bases": 981975424,
+      "tool": "mumemto",
+      "status": "complete",
+      "wall_seconds": 221.77356130201952,
+      "peak_process_tree_rss_gib": 41.475425720214844,
+      "matches": 140229,
+      "reference_covered_bases": 52097517,
+      "validation": {
+        "sequence_or_coordinate_errors": 0,
+        "jointly_extendable": 0,
+        "all_unique": true,
+        "nonunique_or_absent_patterns": 0,
+        "nonunique_match_ids": [],
+        "examples": []
+      },
+      "actual_cpp_partition_workers": 15,
+      "mean_used_cpu_cores": 13.626556665537395,
+      "output_agreement_established": false,
+      "raw_report_sha256": "96ae0c811d64cdb20094a0aa0648b6e3c57c3b0627a7adcd65156f68609444d0"
+    },
+    {
+      "haplotypes": 16,
+      "total_bases": 981975424,
+      "tool": "mumento2",
+      "status": "timeout",
+      "wall_seconds": null,
+      "matches": null,
+      "validation": null,
+      "time_limit_seconds": 600,
+      "wall_seconds_lower_bound": 600,
+      "memory_limit_gib": 48,
+      "output_agreement_established": false,
+      "sampled_peak_process_tree_rss_gib": 11.28896713256836,
+      "elapsed_seconds_until_abort": 600.0009780760156
+    },
+    {
+      "haplotypes": 32,
+      "total_bases": 1962458447,
+      "tool": "mumemto",
+      "status": "memory_limit",
+      "wall_seconds": null,
+      "matches": null,
+      "validation": null,
+      "time_limit_seconds": 600,
+      "wall_seconds_lower_bound": null,
+      "memory_limit_gib": 48,
+      "output_agreement_established": false,
+      "sampled_peak_process_tree_rss_gib": 48.06440734863281,
+      "elapsed_seconds_until_abort": 20.124943856004393
+    },
+    {
+      "haplotypes": 32,
+      "tool": "mumento2",
+      "status": "not_attempted",
+      "reason": "C++ first exceeded the shared 48 GiB local memory limit; scaling stopped",
+      "wall_seconds": null,
+      "matches": null,
+      "validation": null
+    }
+  ],
+  "initial_k31": {
+    "haplotypes": 2,
+    "minimum_MUM_length": 31,
+    "cpp": {
+      "status": "complete",
+      "wall_seconds": 104.10360677499557,
+      "peak_process_tree_rss_gib": 2.5807647705078125,
+      "matches": 68325,
+      "validation": {
+        "sequence_or_coordinate_errors": 0,
+        "jointly_extendable": 0,
+        "all_unique": true,
+        "nonunique_or_absent_patterns": 0,
+        "nonunique_match_ids": [],
+        "examples": []
+      }
+    },
+    "rust": {
+      "reason": "Smallest-stage feasibility time budget exhausted; censored, not a completed runtime",
+      "limit_seconds": 600,
+      "elapsed_seconds": 600.0,
+      "pid": 1050434,
+      "terminated_utc": "2026-10-18T08:26:07.203989+00:00",
+      "tool": "mumento2",
+      "status": "incomplete_time_limit",
+      "minimum_length": 31,
+      "wall_seconds_before_termination": 601.47,
+      "cpu_user_seconds": 618.53,
+      "cpu_system_seconds": 23.59,
+      "peak_process_rss_kib": 40074392,
+      "completed_output": false,
+      "phase": "Reference self-alignment context generation (worker 0 scratch files exist and are empty; query scan not reached)",
+      "hypothesis": "Nested fragment occurrence loops create pairwise repeat alignments; source inspection, not a sampled profiler attribution."
+    }
+  },
+  "experimental_k100": "Incomplete separate configuration: graph unitig joining did not advance its first bucket during >190 s observation and was stopped. No C++ result at k100; not part of the k63 comparison.",
+  "inputs": [
+    {
+      "accession": "GCA_044165215.1",
+      "sample": "HG00097",
+      "haplotype": "1",
+      "assembly_name": "HG00097_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00097/assemblies/release2/HG00097_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"72de7815fa25a832d9a968020da72d64-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61840984,
+      "bases": 61077493,
+      "fasta_sha256": "1d6e93dd21af002a6323400c8683cf31749aa3763b22c9648a41a77e29b5d47a",
+      "zstd_sha256": "fc98e7105e35bab64a46ea8c2b47d87042f9fb71419eabb47a3b44777fa96574",
+      "zstd_bytes": 17085060,
+      "records": [
+        {
+          "name": "HG00097#1#CM094070.1",
+          "start": 0,
+          "bases": 61077493
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/165/215/GCA_044165215.1/GCA_044165215.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        494445218,
+        511597533
+      ],
+      "source_region_sha256": "802e748c82cb3984becb8f5be5cd9907d660ac9276e90adfa8be768684e7c02c",
+      "fai_sha256": "c2a6f6fbaa442bc6786474e5044da1d56746b2beb9e4703f999108ea83059b4c",
+      "gzi_sha256": "1c653f8fc780b9a6e3028b91da773148b722f0c20e68b3d9b3c1036dc44e68bc",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T08:15:10.233985+00:00"
+    },
+    {
+      "accession": "GCA_042032525.1",
+      "sample": "HG00099",
+      "haplotype": "1",
+      "assembly_name": "HG00099_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00099/assemblies/release2/HG00099_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"2d228b23eec145ae47aa2d0c1be3d21a-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 63116194,
+      "bases": 62336960,
+      "fasta_sha256": "8fdfc9910531cfab8e3ca6da40b3a1d220b9f0382a0f4473491d70a4893df316",
+      "zstd_sha256": "9d333ef128940edfe05e8061a638a545de67826281d86eb05e6570475125d508",
+      "zstd_bytes": 17137445,
+      "records": [
+        {
+          "name": "HG00099#1#CM087326.1",
+          "start": 0,
+          "bases": 62336960
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/032/525/GCA_042032525.1/GCA_042032525.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        394115466,
+        411317197
+      ],
+      "source_region_sha256": "a3775861e5a7a596067171979187f8958eceb121644d322c79a7cb62ca63cf93",
+      "fai_sha256": "3ef7da0debf627a93d4426b3090d0bf9ef329328b7084a36e179dce81cbf2ffb",
+      "gzi_sha256": "c822087896930803255e379d468431d804019b29bf98ab6f717c3e36e283deea",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T08:15:08.386676+00:00"
+    },
+    {
+      "accession": "GCA_042078065.1",
+      "sample": "HG00126",
+      "haplotype": "1",
+      "assembly_name": "HG00126_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00126/assemblies/release2/HG00126_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"77c0bf30539118ef77ece08bdf8c9ea6-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62698562,
+      "bases": 61924483,
+      "fasta_sha256": "3f1f36aeb89ba8d7f7aa5d9d5d4f0b305dc8ad28f44e92289cf5f6d465340024",
+      "zstd_sha256": "8e5300e9f505a86e768e9639c0dd75e9faaf0f07238e64f8636fc50a79a8e914",
+      "zstd_bytes": 17097955,
+      "records": [
+        {
+          "name": "HG00126#1#CM090118.1",
+          "start": 0,
+          "bases": 61924483
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/078/065/GCA_042078065.1/GCA_042078065.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        511453511,
+        528603364
+      ],
+      "source_region_sha256": "aeb0b17144c94920d97619e045d5e81575b1dc828c6384048b93098a9d6d37a4",
+      "fai_sha256": "b90b9f4b519413f324470f33e1b76969c956da001bb63068e725175a16858c72",
+      "gzi_sha256": "f9b52b75160a48b1df08a886abb522d0d894bde7c69b69cbcde4d5df72e1c75d",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T08:30:07.947566+00:00"
+    },
+    {
+      "accession": "GCA_042078025.1",
+      "sample": "HG00128",
+      "haplotype": "1",
+      "assembly_name": "HG00128_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00128/assemblies/release2/HG00128_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"39b59dcef2ca644ef8b7512e2fd92484-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61201350,
+      "bases": 60445756,
+      "fasta_sha256": "9829161318cf96f0d66dc321a68fd1b5784b5ca73cad857b2f93f095a00999a7",
+      "zstd_sha256": "c087f8026f3543f7333955268fdfb553d8065466fc4d825bf0f423f5282fb052",
+      "zstd_bytes": 16770156,
+      "records": [
+        {
+          "name": "HG00128#1#CM090090.1",
+          "start": 0,
+          "bases": 60445756
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/078/025/GCA_042078025.1/GCA_042078025.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        636754165,
+        653577740
+      ],
+      "source_region_sha256": "bdfcc43fa971fa4247eee147744e9de4b059ed640d3b0f06716837dd9a7c8e06",
+      "fai_sha256": "615e557c363e7d4c1cbd56face7535cdfade6deba0aae3e077438a995210a173",
+      "gzi_sha256": "c46e534b921940bfd5d318d37ee2173bae20d6ba8ed07f7e183fe6da49454c8e",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T08:30:12.648826+00:00"
+    },
+    {
+      "accession": "GCA_042031265.1",
+      "sample": "HG00140",
+      "haplotype": "1",
+      "assembly_name": "HG00140_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00140/assemblies/release2/HG00140_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"7cb92337d456a1e83586f15297ad777b-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62725438,
+      "bases": 61951028,
+      "fasta_sha256": "fc6f59d46c9eadf5921a4cebcbde2dc88e347e8ca0ce0dfab97e66c6ab9812e0",
+      "zstd_sha256": "4cf82052d90513719665ba8b0c53ebacd14507544cb0fc0dfe66c6f0bed72897",
+      "zstd_bytes": 17109855,
+      "records": [
+        {
+          "name": "HG00140#1#CM087120.1",
+          "start": 0,
+          "bases": 61951028
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/031/265/GCA_042031265.1/GCA_042031265.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        564903488,
+        582081224
+      ],
+      "source_region_sha256": "b385c752827c7db42518439250667656cf310c723f4c3781a3a4b5307d5c1c59",
+      "fai_sha256": "bb9e7a8d986856faa5fffc66a39e427f7ca569443de8e7b1f166dc4c1af433b7",
+      "gzi_sha256": "6cc08aced50eaf88d1fc0716f78e2809983ccc47b6dad2da97336b526cc00adc",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:07:36.435661+00:00"
+    },
+    {
+      "accession": "GCA_042077995.1",
+      "sample": "HG00146",
+      "haplotype": "1",
+      "assembly_name": "HG00146_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00146/assemblies/release2/HG00146_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"df66251704b81968ee186198c10ffebf-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 60810561,
+      "bases": 60059791,
+      "fasta_sha256": "ac6a8341c349b4b1c31dd85ba23b081997d73c92ab0736874302a0cce9d47c85",
+      "zstd_sha256": "d1a058334e4d74bfab319ae83f1751d8d38e5bc601252d9a292b5b6102fadd4d",
+      "zstd_bytes": 17038093,
+      "records": [
+        {
+          "name": "HG00146#1#CM090020.1",
+          "start": 0,
+          "bases": 60059791
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/995/GCA_042077995.1/GCA_042077995.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        341372468,
+        358434722
+      ],
+      "source_region_sha256": "bdafefcb488cf9d19e3467f2e2337ffaae0afff543bc2df584d254163ccdbd05",
+      "fai_sha256": "dd16e647053ad38114ddfb92380e3385148d7a463ecc419f079923dab3b89ad7",
+      "gzi_sha256": "a17c01930fb92988127f12c6bdda86cd935599a11a03c923a16d0d725eedfc2b",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:07:21.756515+00:00"
+    },
+    {
+      "accession": "GCA_042077985.1",
+      "sample": "HG00232",
+      "haplotype": "1",
+      "assembly_name": "HG00232_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00232/assemblies/release2/HG00232_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"3dccaea484292ca688dff199a8cd7492-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61072485,
+      "bases": 60318481,
+      "fasta_sha256": "358e083526257c4cf966831b3191f18bb6a8406b193e970f13bbf555f177a64a",
+      "zstd_sha256": "b387a77e2df67dcefef4c289ca6126155d919bc0c2a8386e566ad8b8910947f4",
+      "zstd_bytes": 17051080,
+      "records": [
+        {
+          "name": "HG00232#1#CM090000.1",
+          "start": 0,
+          "bases": 60318481
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/985/GCA_042077985.1/GCA_042077985.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        443935234,
+        461025443
+      ],
+      "source_region_sha256": "29e03f8b0fffd0e57f472724dcec42d9bae841649f5f812c5e3c1cfde25e2f2a",
+      "fai_sha256": "34e95c020da8fc255e973ca1c56c53786aa4883c63af465dffbd8a0f9f784680",
+      "gzi_sha256": "d8687fd4c92555a82782bf493f00e168f1e87765f69eb7dabe2c1df8632a38f7",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:13:32.976220+00:00"
+    },
+    {
+      "accession": "GCA_044165645.1",
+      "sample": "HG00235",
+      "haplotype": "1",
+      "assembly_name": "HG00235_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00235/assemblies/release2/HG00235_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"f132eb98b9c8cbbf4794eae8adb7688a-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62531285,
+      "bases": 61759272,
+      "fasta_sha256": "0dee5822cf2902a0a9214691668d3f12e0865555d46a19358059ea03e5dbf1a5",
+      "zstd_sha256": "538fd6f305842b83c02c00b2869b6327343b3b13f6a6541537f5871643231686",
+      "zstd_bytes": 17094717,
+      "records": [
+        {
+          "name": "HG00235#1#CM094378.1",
+          "start": 0,
+          "bases": 61759272
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/165/645/GCA_044165645.1/GCA_044165645.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        383958325,
+        401125241
+      ],
+      "source_region_sha256": "fc163d86ada11340dfe015339701210ecc9e3f73b0375652a3a0903f6756ac2a",
+      "fai_sha256": "f041890593d46849ae0e70ad8136a9d114859ca1cd9ba3a092792bd0bb2a9274",
+      "gzi_sha256": "99d9cae1c87951740fc25a5438da25aac79d1ab335341370ac87526d8f1155a1",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:13:25.978683+00:00"
+    },
+    {
+      "accession": "GCA_044166805.1",
+      "sample": "HG00253",
+      "haplotype": "1",
+      "assembly_name": "HG00253_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00253/assemblies/release2/HG00253_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"141ff90e8a2bd4ddab6f97c806cef5de-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 63038653,
+      "bases": 62260376,
+      "fasta_sha256": "e28c5ea58cf2423a1803217e3bf8d3e9c4b3ad67f827be358a4e48ff8867fee6",
+      "zstd_sha256": "06f391785dac55cc1f367d7d46a43f8b4111603dc199c74bffa96f89dc587760",
+      "zstd_bytes": 17133366,
+      "records": [
+        {
+          "name": "HG00253#1#CM094466.1",
+          "start": 0,
+          "bases": 62260376
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/805/GCA_044166805.1/GCA_044166805.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        474586031,
+        491824743
+      ],
+      "source_region_sha256": "51ddbbee9ed2ca86f10acc0b67eedb340de970b9c220260308edbb3bfce3427b",
+      "fai_sha256": "109e83644f6c8ec2d7e7121ddcff5834e30505f1f5f9d81555f5a6d560d50083",
+      "gzi_sha256": "eb9ec81ea6ffcf103817d9bd717727897483970176e6715aaf223c39caf10121",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:13.551498+00:00"
+    },
+    {
+      "accession": "GCA_044166515.1",
+      "sample": "HG00272",
+      "haplotype": "1",
+      "assembly_name": "HG00272_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00272/assemblies/release2/HG00272_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"400a7885d97998023977a0c2d08ba891-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61987015,
+      "bases": 61221721,
+      "fasta_sha256": "64dc3d22d3ffe17977910cd7b01cf988c64a4b82bf8e3748f48515cecca6ccc4",
+      "zstd_sha256": "55bebe859d84fcd469f763953fda4e9263a915c8627e02bb2969a675a62e11c0",
+      "zstd_bytes": 17084902,
+      "records": [
+        {
+          "name": "HG00272#1#CM094199.1",
+          "start": 0,
+          "bases": 61221721
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/515/GCA_044166515.1/GCA_044166515.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        633656177,
+        650813950
+      ],
+      "source_region_sha256": "b19a7e67c9428468cbd9c14a777c1fc2480f3651d9158b77457714c0abf0f55c",
+      "fai_sha256": "14623d556025c00c5f6c0c64a9f6c446d177600fe022ff91c3bd9c52a849172b",
+      "gzi_sha256": "eac97e054132750e65a8156f6eb72c59d6d84e3701ab10b01bf29aee6ef0be32",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:12.494116+00:00"
+    },
+    {
+      "accession": "GCA_042031275.1",
+      "sample": "HG00280",
+      "haplotype": "1",
+      "assembly_name": "HG00280_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00280/assemblies/release2/HG00280_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"91f6740b01c3a592a8299b66824c40f8-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62945887,
+      "bases": 62168755,
+      "fasta_sha256": "e009bd92af817206bfe776b2c19c4d74142953f976da5d77100ac2e8296e9f1c",
+      "zstd_sha256": "b29b4a37cc1a39f815b74aad6add8517f34141f61adfff49e50d43631f72dbdb",
+      "zstd_bytes": 17126233,
+      "records": [
+        {
+          "name": "HG00280#1#CM087157.1",
+          "start": 0,
+          "bases": 62168755
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/031/275/GCA_042031275.1/GCA_042031275.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        386861079,
+        404096958
+      ],
+      "source_region_sha256": "6c1f75dff54881ce7e528a11dc8ff63ada71256c44a70e053e93d2c3d0aaa321",
+      "fai_sha256": "de3bb12974d160b798d36aa01bf5a071b444819a376a1093d98b4c5b35b342a7",
+      "gzi_sha256": "4ad71d02a8941301426b52b21f80b7fe259bed314d8ed677b5339f2ddabf76be",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:13.838422+00:00"
+    },
+    {
+      "accession": "GCA_042077965.1",
+      "sample": "HG00290",
+      "haplotype": "1",
+      "assembly_name": "HG00290_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00290/assemblies/release2/HG00290_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"d3088920808ce28b1b831a814f4c7ac6-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61768667,
+      "bases": 61006069,
+      "fasta_sha256": "440492e05cbd25236f6116fef8115de420c08d4de07b47954c51910c369f3a95",
+      "zstd_sha256": "d5965aa598d0988bbc987cbcf309269fb1867833f468676b9dfff040bda43162",
+      "zstd_bytes": 17095232,
+      "records": [
+        {
+          "name": "HG00290#1#CM089990.1",
+          "start": 0,
+          "bases": 61006069
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/965/GCA_042077965.1/GCA_042077965.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        560699341,
+        577841768
+      ],
+      "source_region_sha256": "223bad2c029f1d3c3cbe497582513357427ac2f723aea6add0165324cb5191e3",
+      "fai_sha256": "0b1ed3af682c00495cda90b596448ecccb7efa9c3af6aef321402c87a494c070",
+      "gzi_sha256": "0fbae8671c904ad1fea8866833167c3468459920ff08a8eecec8d0b09f7d9f5a",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:20.736155+00:00"
+    },
+    {
+      "accession": "GCA_042077865.1",
+      "sample": "HG00320",
+      "haplotype": "1",
+      "assembly_name": "HG00320_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00320/assemblies/release2/HG00320_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"49b70136cf622f09f8e15dd99a78d890-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62762659,
+      "bases": 61987789,
+      "fasta_sha256": "f5523b2e975e6f6fdede62955df8782cb8dabaeade29b9be476d5ee166d261a3",
+      "zstd_sha256": "d5dd29edd08f9053dd6d69f41312de2aec279c068d047a352c46ac8119465eb0",
+      "zstd_bytes": 17109918,
+      "records": [
+        {
+          "name": "HG00320#1#CM089959.1",
+          "start": 0,
+          "bases": 61987789
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/865/GCA_042077865.1/GCA_042077865.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        499555473,
+        516742606
+      ],
+      "source_region_sha256": "05cab72f4fda7a85fce6efef5c3cb8e28b5d1dac24912743ef714c59d6c27e48",
+      "fai_sha256": "55f93411eacb2161f6d43a30d80c0875c327697909a3c580e3b043859398a6ba",
+      "gzi_sha256": "bd7108ce6042b8a0e8750366619f50b4893d9a0d963c122385a27d19035c1ce2",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:57.118653+00:00"
+    },
+    {
+      "accession": "GCA_042077015.1",
+      "sample": "HG00321",
+      "haplotype": "1",
+      "assembly_name": "HG00321_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00321/assemblies/release2/HG00321_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"68f051ba5c6160aab03618a48bcfbab2-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61745321,
+      "bases": 60983011,
+      "fasta_sha256": "2c5071d8442cb887a323890390749832beb2fa5cb7f377015e9bc8a4bceddbda",
+      "zstd_sha256": "35ba5cd6eda8b1592e36452bde9d01fce9b7d79c6b6953ab1e16e68f1ee205d4",
+      "zstd_bytes": 17077445,
+      "records": [
+        {
+          "name": "HG00321#1#CM089551.1",
+          "start": 0,
+          "bases": 60983011
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/077/015/GCA_042077015.1/GCA_042077015.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        707154444,
+        724280026
+      ],
+      "source_region_sha256": "7eddbd7f39662dde850d10505b513949f984fd82f921649f12630e54e7a0fb7e",
+      "fai_sha256": "f826200138acc9c18317decd38e2ce09ae0f1747efdcbc434f05627f053180ee",
+      "gzi_sha256": "5daf662c972b6879cf68396e28d767f2e755eed64c1492112281cae79b17b290",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:53.323765+00:00"
+    },
+    {
+      "accession": "GCA_044166575.1",
+      "sample": "HG00329",
+      "haplotype": "1",
+      "assembly_name": "HG00329_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00329/assemblies/release2/HG00329_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"5ca237309602278d98eb987fb2cc4da2-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61228985,
+      "bases": 60473049,
+      "fasta_sha256": "c2a5f5329d7864634a0d803edaa0c67fc17a3e26df034a96d5298f59ff5af7e7",
+      "zstd_sha256": "4d8a5573c8a52a7add13bec70e28d113e3d4a9b775a13e46516568dd570866b0",
+      "zstd_bytes": 17050763,
+      "records": [
+        {
+          "name": "HG00329#1#CM094236.1",
+          "start": 0,
+          "bases": 60473049
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/575/GCA_044166575.1/GCA_044166575.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        402676890,
+        419771157
+      ],
+      "source_region_sha256": "025471509f5c3fbc1e32116323995f76ec35b865ef73c613fa4b8b6dbb86f048",
+      "fai_sha256": "8288bdeec8353ec93d9a826e10079e837c5b4b98b644d9b33d3aa91e909682b5",
+      "gzi_sha256": "f99aa60bcda13929614a3b2b1647e583e755dab07f7a929f93e6e45a87e19471",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:29:55.429324+00:00"
+    },
+    {
+      "accession": "GCA_044166765.1",
+      "sample": "HG00344",
+      "haplotype": "1",
+      "assembly_name": "HG00344_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00344/assemblies/release2/HG00344_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"ef51fdfa50af110e19935edd780eea33-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62776430,
+      "bases": 62001390,
+      "fasta_sha256": "add86a310a112bc5ab9348eb1d3a80ba671a3a3884f91155a08acb4c74a5e637",
+      "zstd_sha256": "6702bf8c917331d6b5249058b3619c926903ed2533c1b645c7c27a2917d4abc7",
+      "zstd_bytes": 17076552,
+      "records": [
+        {
+          "name": "HG00344#1#CM094509.1",
+          "start": 0,
+          "bases": 62001390
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/166/765/GCA_044166765.1/GCA_044166765.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        420071211,
+        437219510
+      ],
+      "source_region_sha256": "6b03a519f14bf0b724e17a65addb91c6268f707c761ab6fc5e7ecad46b1cba76",
+      "fai_sha256": "28f13964254382350f4d61d18abce9b6f1dc2bb5fb530811c4214ff6c3419b1f",
+      "gzi_sha256": "3f9d1938843f31175053404ee412dd1b41275663983a9abd5c31dc9179599f5b",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:30:07.819251+00:00"
+    },
+    {
+      "accession": "GCA_044167235.1",
+      "sample": "HG00350",
+      "haplotype": "1",
+      "assembly_name": "HG00350_hap1_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00350/assemblies/release2/HG00350_hap1_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"f1166d51a5647840d2c524ff1dacfa7e-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62756613,
+      "bases": 61981818,
+      "fasta_sha256": "7a291f99a711ffb648cb2c2a78b7cdb8b1a2aa9d8a397d4ec63221a5870a1eb7",
+      "zstd_sha256": "7f9b7bec75e9f50ac4704715b5bce72583018f5af2469f85c526ef180bc1eb49",
+      "zstd_bytes": 17166239,
+      "records": [
+        {
+          "name": "HG00350#1#CM094479.1",
+          "start": 0,
+          "bases": 61981818
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/044/167/235/GCA_044167235.1/GCA_044167235.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        465941233,
+        483201612
+      ],
+      "source_region_sha256": "9f43b13a6adb12b43bca73179b3d1804d54c83655562f978246c7c13a1ac5323",
+      "fai_sha256": "0f7d6caf593b493e2dab0607167b82e88e6bb7762a0c606158daf69f3a4c7ea4",
+      "gzi_sha256": "c33d8cd1c1026c3e1fa6ae1f488b7e181f06fff2d66274a994a494e1a4236c00",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:10.083943+00:00"
+    },
+    {
+      "accession": "GCA_041900255.1",
+      "sample": "HG00408",
+      "haplotype": "1",
+      "assembly_name": "HG00408_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00408/assemblies/release2/HG00408_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"bdc614f27d02d6947b95e4b427712b91-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61824876,
+      "bases": 61061584,
+      "fasta_sha256": "46cb6611356701bd21733fca872e871205e5a0a3fb46407519cfda9b7fda05f1",
+      "zstd_sha256": "7fba4cadb3bcb789297f61e56185ca8336716b33e7ee88b9675a0f16a0c8cbf8",
+      "zstd_bytes": 17048217,
+      "records": [
+        {
+          "name": "HG00408#1#CM085963.1",
+          "start": 0,
+          "bases": 61061584
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/255/GCA_041900255.1/GCA_041900255.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        455794975,
+        472901641
+      ],
+      "source_region_sha256": "6c81c47688e440ede77e47cceec2a641e4453be971d184eb0ad70b348eb64341",
+      "fai_sha256": "dd02e0818adbe3f63bea6d54a5ddc833569aa131ed7c906a793148e77ea0d778",
+      "gzi_sha256": "539e3fc1ce5feac71a5ff47443c1ff0027f19f91498d6c6538f8b3635c8088a9",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:09.210495+00:00"
+    },
+    {
+      "accession": "GCA_042076665.1",
+      "sample": "HG00423",
+      "haplotype": "1",
+      "assembly_name": "HG00423_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00423/assemblies/release2/HG00423_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"98d3b9c18a0da63e3d200b0067033bb2-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62421844,
+      "bases": 61651182,
+      "fasta_sha256": "8f28c295911d002571550842454bd7bcd8b5684d963906f9efcc3ccabebafcc2",
+      "zstd_sha256": "8b6c09e82fc6676d07842c1b483eae3955207705347efc6c0e74f30f2779a13b",
+      "zstd_bytes": 17067939,
+      "records": [
+        {
+          "name": "HG00423#1#CM089409.1",
+          "start": 0,
+          "bases": 61651182
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/076/665/GCA_042076665.1/GCA_042076665.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        553280758,
+        570391334
+      ],
+      "source_region_sha256": "9a80d3a26049139c3988144fb675d3b94790c701fa4b599f69c1063859055867",
+      "fai_sha256": "b354e879b24bf85b9acee0e7965cea45ad1f70fb71a609825ae459eff261109a",
+      "gzi_sha256": "f9b9359523cd08ec9e7cb9b50be7d837e4d4cbd3f109caa9d6a6154f30030468",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:11.497142+00:00"
+    },
+    {
+      "accession": "GCA_018472595.2",
+      "sample": "HG00438",
+      "haplotype": "1",
+      "assembly_name": "HG00438_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00438/assemblies/release2/HG00438_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"fbc5cc47a65f1a1f17006961102b08b1-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61728612,
+      "bases": 60966508,
+      "fasta_sha256": "705e32a2c4a77736e1ee9490d053a1b4d3d3c232f8ed7b39395b9557f299dad5",
+      "zstd_sha256": "355398871253b924a478454a578758e3fa79a25359f3c4116272217a9dadd07b",
+      "zstd_bytes": 17057779,
+      "records": [
+        {
+          "name": "HG00438#1#CM089182.1",
+          "start": 0,
+          "bases": 60966508
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/595/GCA_018472595.2/GCA_018472595.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        701209753,
+        718326310
+      ],
+      "source_region_sha256": "5ed261d17e7628a0663b232001171cb2fae5df839bf2100e0f6fdb9906bfdd7d",
+      "fai_sha256": "e563ab023fac48d0e751dd4df8fa60fc5353f0f7de293afed0383569e4bc3638",
+      "gzi_sha256": "198d58d572a8b52454914bc6d7ba278340bb4064d7878ddb724cb9712db80a08",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:08.185392+00:00"
+    },
+    {
+      "accession": "GCA_018506945.2",
+      "sample": "HG005",
+      "haplotype": "1",
+      "assembly_name": "HG005_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC_PLUS/HG005/assemblies/release2/HG005_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"143d64853051f80adfb39136272bdb4b-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61723013,
+      "bases": 60960980,
+      "fasta_sha256": "08f3b646d9011f7cf034c50e836e79ba74708a4874e64beb4fdbd979b4237664",
+      "zstd_sha256": "f024be010b08a6d6f53474d2e2a35f97e9dcfd45f267259ee1123fa9df081096",
+      "zstd_bytes": 17060839,
+      "records": [
+        {
+          "name": "HG005#1#CM099993.1",
+          "start": 0,
+          "bases": 60960980
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/506/945/GCA_018506945.2/GCA_018506945.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        425798910,
+        442888698
+      ],
+      "source_region_sha256": "69c79cce22d106f698b87f4f20098d24088242b9288f6c1b8518b0b25c78c369",
+      "fai_sha256": "f25aa95e5a06845a45af8e5a020f135c842617c872ad0887247eb1f01cc92933",
+      "gzi_sha256": "ce58c0e4b29594150d87f7f54ec1e45b2878ea6c43e9bbe34b7ecb974786c91b",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:46:00.787521+00:00"
+    },
+    {
+      "accession": "GCA_042076675.1",
+      "sample": "HG00544",
+      "haplotype": "1",
+      "assembly_name": "HG00544_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00544/assemblies/release2/HG00544_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"e1c744df210357fda2f7f4e454f904a7-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61835534,
+      "bases": 61072110,
+      "fasta_sha256": "8023b274868bca4e234c898995ac79212f5be49338e46ba9534eb59ec28bb50e",
+      "zstd_sha256": "ebd6539471aba0a5bc74c79bec8d74733f4b23c0cc35d8a4e33699f190aa89ba",
+      "zstd_bytes": 17064713,
+      "records": [
+        {
+          "name": "HG00544#1#CM089379.1",
+          "start": 0,
+          "bases": 61072110
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/076/675/GCA_042076675.1/GCA_042076675.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        430205372,
+        447319914
+      ],
+      "source_region_sha256": "d29a7f985e674471f4fb9c7ad7323ced19c9e93a1f3442233f1232dd09e66363",
+      "fai_sha256": "7aedc35f763b867bbc68c632e8531ddfcaa388d7c7d231d2563f52a315d59e3e",
+      "gzi_sha256": "8424488b3ab744389cb3c04a146dd08de2dd87f1b25771297204f04b1c323c61",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:58.560267+00:00"
+    },
+    {
+      "accession": "GCA_041900365.1",
+      "sample": "HG00597",
+      "haplotype": "1",
+      "assembly_name": "HG00597_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00597/assemblies/release2/HG00597_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"7e74391b171a000a713e42272f6aa122-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62977059,
+      "bases": 62199542,
+      "fasta_sha256": "3584d40815335666653378c7e5a8e5f4b1c5b13cb6fd7efc26a70a415dc6d11e",
+      "zstd_sha256": "1658660f56d424e8e5f2dc53d49eb61a6c52164aee5cc05e65aa6f2b5f768eac",
+      "zstd_bytes": 17139934,
+      "records": [
+        {
+          "name": "HG00597#1#CM085776.1",
+          "start": 0,
+          "bases": 62199542
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/041/900/365/GCA_041900365.1/GCA_041900365.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        500831979,
+        518046052
+      ],
+      "source_region_sha256": "71677605e5ae494133e816600e21e7fc2e4c3ddc23ba949fc5b2bb50a217c6b7",
+      "fai_sha256": "0f70e55259332c6e934c3881caa08368f12d3cc8a773d148627d98b69e131a25",
+      "gzi_sha256": "3582b2f8f1cc087a7b89e1dd9d3d12a241e4e67ce513140781a1e601c26edebf",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:54.011433+00:00"
+    },
+    {
+      "accession": "GCA_018472575.2",
+      "sample": "HG00621",
+      "haplotype": "1",
+      "assembly_name": "HG00621_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00621/assemblies/release2/HG00621_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"8ad6a988d4493f30abeec2e6370ae6ee-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62323090,
+      "bases": 61553647,
+      "fasta_sha256": "db4569ace2307444f1517e99de38ea09e4302f9dd58597415e2086fb42710a15",
+      "zstd_sha256": "195a044eaacfb3daf9047c945e7c4336cb0cdd71de36c832f3c691218da5de30",
+      "zstd_bytes": 17070003,
+      "records": [
+        {
+          "name": "HG00621#1#CM087860.1",
+          "start": 0,
+          "bases": 61553647
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/575/GCA_018472575.2/GCA_018472575.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        601617798,
+        618736262
+      ],
+      "source_region_sha256": "e9f8259f2a3457675ac63084391351d521f341d4d00b84b9b8db1c6be83be4a2",
+      "fai_sha256": "7db56b14b2c28bd2df55a319178fe50c26b3dbd920f0fb359243c1e2cc4050bb",
+      "gzi_sha256": "5f8a22ddc5248834d9587ff81c3fb3da662f94f708893882f01d759b54b4d287",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:45:58.887661+00:00"
+    },
+    {
+      "accession": "GCA_042028805.1",
+      "sample": "HG00642",
+      "haplotype": "1",
+      "assembly_name": "HG00642_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00642/assemblies/release2/HG00642_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"7ff365de644663542f323e2683ebfd8d-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61114980,
+      "bases": 60360452,
+      "fasta_sha256": "952636648efec190e74505b8fd56e83c013fd88bf6ba25042666f481da70df42",
+      "zstd_sha256": "2553a4a90672ff77dc57a82b641144924593ccff6878f599f1ceac7e75233193",
+      "zstd_bytes": 17059184,
+      "records": [
+        {
+          "name": "HG00642#1#CM086615.1",
+          "start": 0,
+          "bases": 60360452
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/805/GCA_042028805.1/GCA_042028805.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        211202688,
+        228271839
+      ],
+      "source_region_sha256": "da3989a89822943046661b6a16a1309efb8acf3d26eec92edf804d0006f3440e",
+      "fai_sha256": "b9fd3db39c025dbf75d6e1b50e55ad97d3d0a9172c693da109d15b6c8ec1c31f",
+      "gzi_sha256": "05a481b72157231e7c94d30a5c85ee161ae133f6ab1da2c5ea266c3bdab5fb54",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:46:34.973149+00:00"
+    },
+    {
+      "accession": "GCA_042037975.1",
+      "sample": "HG00658",
+      "haplotype": "1",
+      "assembly_name": "HG00658_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00658/assemblies/release2/HG00658_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"1997be0cdf0c29dd20092b8778382d55-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61478013,
+      "bases": 60719003,
+      "fasta_sha256": "8c8342feac51bf36e5258b721cd2dd2c81f310858884f65cee994b2173174a65",
+      "zstd_sha256": "fa32ab7b27421d6e6b952a61a4348e23acb596df7ead35cc308f610a914afb8d",
+      "zstd_bytes": 17045994,
+      "records": [
+        {
+          "name": "HG00658#1#CM088784.1",
+          "start": 0,
+          "bases": 60719003
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/037/975/GCA_042037975.1/GCA_042037975.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        532795158,
+        549869177
+      ],
+      "source_region_sha256": "c85310e009b65919085f788670e9044a5edb835add3947af773b3a3a8791940c",
+      "fai_sha256": "c2faf9ecc7127260c6ca3514cec998bf32b1a29e9e7a04fe0be01d441aec0e60",
+      "gzi_sha256": "0a71188f74637261e36365006777b1466da2cbbf00e1bf31023c0ef73625f625",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:46:40.625899+00:00"
+    },
+    {
+      "accession": "GCA_046116065.1",
+      "sample": "HG00706",
+      "haplotype": "1",
+      "assembly_name": "HG00706_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00706/assemblies/release2/HG00706_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"2c11788b5a8353614677167cec46a670-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61980701,
+      "bases": 61215485,
+      "fasta_sha256": "46e36fd83363b69e25a0d717827023e22285a5857ef27683f1665177019bedfc",
+      "zstd_sha256": "e494d1367a8800337463b738dac632e39c50a6fb7f79cf32ed623263da557ee3",
+      "zstd_bytes": 17055275,
+      "records": [
+        {
+          "name": "HG00706#1#CM100023.1",
+          "start": 0,
+          "bases": 61215485
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/046/116/065/GCA_046116065.1/GCA_046116065.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        538473551,
+        555570282
+      ],
+      "source_region_sha256": "3eaaab6d2f1b6b949b8c74685b7a0a7a76ad072ba3e4af983e534b953d05babc",
+      "fai_sha256": "7cd16d1aeca18ca56ae2deb9b6b84624290c5e023748baa67420b6aaad0bebeb",
+      "gzi_sha256": "7aa39f9aae877d103c681752eeceeda3f32ae7954a2b04f96172c3e11a49cfaa",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:46:40.925227+00:00"
+    },
+    {
+      "accession": "GCA_018506955.2",
+      "sample": "HG00733",
+      "haplotype": "1",
+      "assembly_name": "HG00733_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC_PLUS/HG00733/assemblies/release2/HG00733_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"03cf2735a3852c6e64a2933b832e60a3-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62734546,
+      "bases": 61960023,
+      "fasta_sha256": "e3b4471128b8a55c1c1f8c47f514ba0a55d53afddab5de4cd08ee438b518075d",
+      "zstd_sha256": "9d1ab1fd4651b4631051d596617ad452ff7c5125f73f06d31beb8a9203410b22",
+      "zstd_bytes": 17130350,
+      "records": [
+        {
+          "name": "HG00733#1#CM099638.1",
+          "start": 0,
+          "bases": 61960023
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/506/955/GCA_018506955.2/GCA_018506955.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        417187323,
+        434395831
+      ],
+      "source_region_sha256": "db7c10494a9fd5e3024a979183e73bf9ac135c1b97d3a1fd71a0a5498f9b607b",
+      "fai_sha256": "be889610bbadd956ca13cc2d9c359cb9ad247ff9ccd88f1767e78c29714ff65d",
+      "gzi_sha256": "e0e74d2ce5243cc38f480de3fe91677b3e8f6338369a315625ba8ce95ee43e03",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:46:42.954339+00:00"
+    },
+    {
+      "accession": "GCA_018472715.2",
+      "sample": "HG00735",
+      "haplotype": "1",
+      "assembly_name": "HG00735_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00735/assemblies/release2/HG00735_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"582b6cb05705e9366ac402da2e90b763-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61227139,
+      "bases": 60471226,
+      "fasta_sha256": "f6088de58102fa05a40d07624e25b9ef3485e939acdfa932b9c210bce9f0c476",
+      "zstd_sha256": "851c2a64f9bc9a31f426df93472112b54ec68e18903a24ba8f7dd010bcd2e170",
+      "zstd_bytes": 17016216,
+      "records": [
+        {
+          "name": "HG00735#1#CM087885.1",
+          "start": 0,
+          "bases": 60471226
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/715/GCA_018472715.2/GCA_018472715.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        354532835,
+        371601087
+      ],
+      "source_region_sha256": "abd2298cdb548f9e2a7160e76595ebc2a430d93f60b93ab30261b40dcdd53281",
+      "fai_sha256": "7f6187771a76e8af51b983e2df4e00970dd72722dea0b9bd5c425ef817e3c26d",
+      "gzi_sha256": "333becdad5e7a2fd3ee3ede9241aa847b5bee6116b4fe3b1a5719ea00574b2d9",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:47:18.007328+00:00"
+    },
+    {
+      "accession": "GCA_042028835.1",
+      "sample": "HG00738",
+      "haplotype": "1",
+      "assembly_name": "HG00738_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00738/assemblies/release2/HG00738_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"e589b24997d5f5fd201a7749290a1656-13\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 61638115,
+      "bases": 60877128,
+      "fasta_sha256": "09448f272e9e232b15b47807997dd96ebdae84081e6eeda390ba2c997e960341",
+      "zstd_sha256": "ea0df0e9818c48360601e013fd6910b6400ef9b6e9068501afd6f47029a528c4",
+      "zstd_bytes": 17067393,
+      "records": [
+        {
+          "name": "HG00738#1#CM086654.1",
+          "start": 0,
+          "bases": 60877128
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/042/028/835/GCA_042028835.1/GCA_042028835.1.chromAlias.txt",
+      "source_compressed_byte_range": [
+        469293289,
+        486397444
+      ],
+      "source_region_sha256": "9515de7c234e773553ce9f2348135f262e76a24bbcfa3a4b455b14f9ca364118",
+      "fai_sha256": "8e13fbc6360d13050474c3d8b75e26ab29561ac71d307f82a202290ea78e1182",
+      "gzi_sha256": "55e28bf853cc543b0ec95d7617a227c9860e07debae26f939443b2bd3b853c76",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:47:22.664818+00:00"
+    },
+    {
+      "accession": "GCA_018471105.2",
+      "sample": "HG00741",
+      "haplotype": "1",
+      "assembly_name": "HG00741_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG00741/assemblies/release2/HG00741_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"08f949716d43b042f75b5df3c6ed0e1c-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62732672,
+      "bases": 61958172,
+      "fasta_sha256": "5a0885e06966178be1be7bfa9ae653650dea464e667a9966e9ce0cc8de07672b",
+      "zstd_sha256": "a1a90ec8b57d965f70b089d3c8626ce2dc738deaebbf425c44f68a1522ba9676",
+      "zstd_bytes": 17046774,
+      "records": [
+        {
+          "name": "HG00741#1#CM087906.1",
+          "start": 0,
+          "bases": 61958172
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/471/105/GCA_018471105.2/GCA_018471105.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        495149696,
+        512258213
+      ],
+      "source_region_sha256": "34c2741f801d1e108a43f6b6034ef1c00468acf52f3e8f918e738e0c1f929574",
+      "fai_sha256": "fae2abac6a18d300e3f7767974b279426ae0a5de881b807381847ff8b030530d",
+      "gzi_sha256": "741c247c1a1a7ae3448a82abca41c8857f690b1a40ba70361af314d6988c8a64",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:47:22.351991+00:00"
+    },
+    {
+      "accession": "GCA_018472725.2",
+      "sample": "HG01071",
+      "haplotype": "1",
+      "assembly_name": "HG01071_pat_hprc_r2_v1.0.1",
+      "source": "https://human-pangenomics.s3.us-west-2.amazonaws.com/working/HPRC/HG01071/assemblies/release2/HG01071_pat_hprc_r2_v1.0.1.fa.gz",
+      "source_etag": "\"a1440c5676f9180ad38c5c61b3daccaa-14\"",
+      "chromosome": "19",
+      "scope": "chromosome 19 only; not whole genomes",
+      "fasta_bytes": 62242613,
+      "bases": 61474163,
+      "fasta_sha256": "cdf36e8d1aa41dd1307fc175bb92826774ec08b8f50251054b5747bb59c346fc",
+      "zstd_sha256": "3457e20d2503a003099d2d96e3bb5c0ffbc2e3de97e554a3d03d213f4cd9364a",
+      "zstd_bytes": 17141984,
+      "records": [
+        {
+          "name": "HG01071#1#CM089124.1",
+          "start": 0,
+          "bases": 61474163
+        }
+      ],
+      "alias_source": "https://hgdownload.soe.ucsc.edu/hubs/GCA/018/472/725/GCA_018472725.2/GCA_018472725.2.chromAlias.txt",
+      "source_compressed_byte_range": [
+        631183432,
+        648416502
+      ],
+      "source_region_sha256": "5b35853976ab7e6c0fca965f97aacc76e25e4300878c7c676377fc3b29ea09bf",
+      "fai_sha256": "f4033414cc06cede3b72c39b18fec490ac5c4a336006fc5e55275e53e028e876",
+      "gzi_sha256": "228ce429a96d220a87e3c22f2c6608d1c2167347f17b7ebb24d98fb1322552d6",
+      "bgzf_crc_verified": true,
+      "verified_utc": "2026-10-18T09:47:24.344356+00:00"
+    }
+  ]
+}

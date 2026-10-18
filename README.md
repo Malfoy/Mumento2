@@ -15,3 +15,17 @@ Inputs may be plain or compressed FASTA/FASTQ, with each file representing one g
 The test suite contains **213 library tests, 7 driver tests and 193 end-to-end tests**, including independent small-input oracles, internal-fragment recovery, reverse strands, repeats, thresholds and incremental updates. See [test coverage](tests/README.md).
 
 In single measured runs on a 32-logical-CPU Intel i9-13950HX, the retained algorithm completed 18,800 bacterial assemblies in **26.66 seconds**, versus **34.44 seconds** before progressive pruning. On a fixed 10,000-assembly collection, the profile-guided executable took **16.08 seconds**, versus **16.96 seconds** for the ordinary optimized executable. Both produced the same fully validated results. These are workload-specific measurements, not statistical performance estimates; threshold/update mode and human datasets require separate measurements.
+
+Human measurements use real HPRC Release 2 **chromosome 19 haplotypes**, one per distinct individual, following the chromosome scaling experiment in the [Mumemto paper](https://doi.org/10.1186/s13059-025-03644-0). These are chromosome inputs, approximately 61 Mb each; uniqueness is checked within those inputs. Nested prefixes were tested once each, with both strands, strict presence in every input, Rust k = 63 and minimum MUM length = 63 bp.
+
+| Haplotypes | C++ seconds | C++ peak RSS (GiB) | Validated C++ MUMs | Rust |
+|---:|---:|---:|---:|---|
+| 2 | 103.82 | 2.58 | 57,456 | 600 s timeout |
+| 4 | 125.58 | 8.32 | 91,348 | 600 s timeout |
+| 8 | 147.97 | 19.34 | 120,060 | 600 s timeout |
+| 16 | 221.77 | 41.48 | 140,229 | 600 s timeout |
+| 32 | Stopped at memory cap | 48.06 at abort | — | Not attempted |
+
+The CPU budget was 32. C++ Mumemto 1.4.2 has a single-threaded core; its partitioned workflow used 1, 3, 7, 15 and 31 workers respectively, with merging included in timing. The 32-input partitioned attempt exceeded the 48 GiB process-tree RSS budget, ending the series. Rust requested 32 threads but remained in serial reference verification. Downloads, staging and validation were excluded from timing. This is a newer panel and tool version than the paper's exact experiment.
+
+All completed C++ outputs passed sequence, coordinate, contig-boundary, joint maximality and independent physical uniqueness checks. Rust produced no completed human output, so cross-tool equality is unestablished. Reference self-alignment over repetitive proto-MUM occurrences is the main unresolved bottleneck: at four inputs this phase alone consumed at least 586 seconds. The initial two-input k = 31 trial also timed out in Rust while C++ completed in 104.10 seconds. These observations do not establish whole-human performance. Input provenance, binary hashes, resource limits and separate experimental configurations are recorded in the [human benchmark results](docs/human-benchmark-20261018.json).
