@@ -7,6 +7,7 @@ use core::mem::transmute;
 
 const GREATER_THAN: uint8x16_t = unsafe { transmute([b'>'; 16]) };
 const LINE_FEED: uint8x16_t = unsafe { transmute([b'\n'; 16]) };
+const CARRIAGE_RETURN: uint8x16_t = unsafe { transmute([b'\r'; 16]) };
 const ASCII_N: uint8x16_t = unsafe { transmute([b'N'; 16]) };
 const UPPERCASE: uint8x16_t = unsafe { transmute([0b11011111u8; 16]) };
 const TWO_BITS: uint8x16_t = unsafe { transmute([0b110u8; 16]) };
@@ -19,7 +20,9 @@ pub fn extract_fasta_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastaBitmask {
         let v = vld4q_u8(ptr);
 
         let open_bracket = movemask_64(map_8x16x4(v, |v| vceqq_u8(v, GREATER_THAN)));
-        let line_feeds = movemask_64(map_8x16x4(v, |v| vceqq_u8(v, LINE_FEED)));
+        let line_feeds = movemask_64(map_8x16x4(v, |v| {
+            vorrq_u8(vceqq_u8(v, LINE_FEED), vceqq_u8(v, CARRIAGE_RETURN))
+        }));
 
         let (is_dna, two_bits, high_bit, low_bit, mask_non_actg, mask_n) = bitpack_dna::<CONFIG>(v);
 
@@ -44,8 +47,10 @@ pub fn extract_fastq_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastqBitmask {
 
         let line_feeds = movemask_64(map_8x16x4(v, |v| vceqq_u8(v, LINE_FEED)));
 
-        let (is_dna, two_bits, high_bit, low_bit, mask_non_actg, mask_n) = bitpack_dna::<CONFIG>(v);
+        let (mut is_dna, two_bits, high_bit, low_bit, mask_non_actg, mask_n) =
+            bitpack_dna::<CONFIG>(v);
 
+        is_dna &= !movemask_64(map_8x16x4(v, |v| vceqq_u8(v, CARRIAGE_RETURN)));
         FastqBitmask {
             line_feeds,
             is_dna,

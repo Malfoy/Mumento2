@@ -7,9 +7,9 @@ extern crate alloc;
 use ::utils::compute_best_m;
 use ahash::HashMap;
 use clap::{ArgGroup, Parser, ValueEnum};
-use colors::DefaultColorsSerializer;
 use colors::colors_manager::ColorMapReader;
 use colors::storage::deserializer::ColorsDeserializer;
+use colors::DefaultColorsSerializer;
 use config::ColorIndexType;
 use config::OUTPUT_COMPRESSION_LEVEL;
 use ggcat_api::{ExtraElaboration, GGCATConfig, GGCATInstance, GfaVersion, KmerFilter};
@@ -175,6 +175,10 @@ struct AssemblerArgs {
     /// Enables colors automatically; use -d to group multiple files into one genome.
     #[arg(long = "present-in-all-colors", conflicts_with = "min_multiplicity")]
     pub present_in_all_colors: bool,
+
+    /// Retain k-mers present in at least N distinct genomes/colors, including repeats.
+    #[arg(long = "present-in-at-least-colors", conflicts_with_all = ["present_in_all_colors", "min_multiplicity"])]
+    pub present_in_at_least_colors: Option<usize>,
 
     /// Generate maximal unitigs connections references, in BCALM2 format L:<+/->:<other id>:<+/->
     #[arg(
@@ -518,6 +522,8 @@ fn run_assembler_from_args(instance: &GGCATInstance, args: AssemblerArgs) {
             },
             if args.present_in_all_colors {
                 KmerFilter::PresentInAllColors
+            } else if let Some(n) = args.present_in_at_least_colors {
+                KmerFilter::PresentInAtLeastColors(n)
             } else {
                 KmerFilter::MinimumMultiplicity
             },

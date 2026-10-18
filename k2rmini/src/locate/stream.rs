@@ -1,22 +1,26 @@
 //! One query pass per genome: SIMD lookup and exact alignment evidence are
 //! computed together. Reduction never reads genome bases or compressed caches.
 use super::*;
+mod shared;
+pub use shared::{StateInfo, locate_shared_mums, read_state_info};
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{BufWriter, Write},
+    io::{BufReader, BufWriter, Read, Write},
     ops::Range,
     sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::Instant,
 };
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct ContigMeta {
     name: String,
     start: u64,
     len: usize,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct GenomeMeta {
     input: PathBuf,
     contigs: Vec<ContigMeta>,
@@ -28,11 +32,30 @@ struct PackedContig {
     runs: Vec<Range<usize>>,
 }
 
+// A reduction without an early-exit branch lets LLVM vectorize the common
+// A/C/G/T-only case. Ambiguous contigs retain the exact run-boundary scan.
+fn all_dna(sequence: &[u8]) -> bool {
+    sequence
+        .iter()
+        .fold(0u8, |bad, &base| bad | u8::from(!is_dna(base)))
+        == 0
+}
+
 impl PackedContig {
     fn new(sequence: &[u8], k: usize) -> Self {
         let forward = PackedSeqVec::from_ascii(sequence);
         let reverse = forward.as_slice().to_revcomp();
         let mut runs = Vec::new();
+        if all_dna(sequence) {
+            if sequence.len() >= k {
+                runs.push(0..sequence.len());
+            }
+            return Self {
+                forward,
+                reverse,
+                runs,
+            };
+        }
         let mut pos = 0;
         while pos < sequence.len() {
             while pos < sequence.len() && !is_dna(sequence[pos]) {
@@ -118,30 +141,43 @@ struct FragmentIndex {
     patterns: Vec<PackedContig>,
     heads: FxHashMap<u32, u32>,
     postings: Vec<SeedPosting>,
+    posting_hashes: Vec<u32>,
+    position_offsets: Vec<usize>,
+    active: Vec<u64>,
+    unique_runs: Vec<u32>,
     probe: Vec<u64>,
-    minis: FxHashSet<u64>,
 }
 
 impl FragmentIndex {
     fn new(source: ProtoIndex) -> io::Result<Self> {
         let mut this = Self {
-            options: source.options,
+            options: source.options.clone(),
             patterns: Vec::new(),
             heads: FxHashMap::default(),
             postings: Vec::new(),
+            posting_hashes: Vec::new(),
+            position_offsets: vec![0],
+            active: Vec::new(),
+            unique_runs: Vec::new(),
             probe: Vec::new(),
-            minis: FxHashSet::default(),
         };
-        let k = this.options.k;
+        this.extend(source)?;
+        Ok(this)
+    }
+
+    fn extend(&mut self, source: ProtoIndex) -> io::Result<()> {
+        let k = self.options.k;
+        let first_pattern = self.patterns.len();
         let mut hashes = Vec::new();
-        let mut positions = Vec::new();
         for (id, pattern) in source.patterns.iter().enumerate() {
+            let id =
+                u32::try_from(first_pattern + id).map_err(|_| invalid("too many proto-MUMs"))?;
             let dna: Vec<_> = (pattern.start..pattern.start + pattern.len)
                 .map(|i| source.sequences.as_slice().get_ascii(i))
                 .collect();
             let packed = PackedContig::new(&dna, k);
             for reverse in [false, true] {
-                if reverse && this.options.forward_only {
+                if reverse && self.options.forward_only {
                     continue;
                 }
                 let seq = if reverse {
@@ -153,39 +189,104 @@ impl FragmentIndex {
                 NtHasher::<false>::new(k)
                     .hash_kmers_simd(seq.as_slice(), 1)
                     .collect_into(&mut hashes);
-                positions.clear();
-                minimizers(this.options.m, k - this.options.m + 1)
-                    .run(seq.as_slice(), &mut positions);
-                for &pos in &positions {
-                    this.minis.insert(
-                        seq.slice(pos as usize..pos as usize + this.options.m)
-                            .as_u64(),
-                    );
-                }
                 for (pos, &hash) in hashes.iter().enumerate() {
-                    let posting = u32::try_from(this.postings.len())
+                    u32::try_from(self.postings.len())
                         .map_err(|_| invalid("too many proto positions"))?;
                     let offset = if reverse { pattern.len - pos - k } else { pos };
                     let offset = u32::try_from(offset)
                         .map_err(|_| invalid("proto-MUM exceeds position range"))?;
-                    let next = this.heads.insert(hash, posting).unwrap_or(NO_POSTING);
-                    this.postings.push(SeedPosting {
-                        pattern: id as u32,
+                    self.posting_hashes.push(hash);
+                    self.postings.push(SeedPosting {
+                        pattern: id,
                         offset,
-                        next,
+                        next: NO_POSTING,
                         reverse,
                     });
                 }
             }
-            this.patterns.push(packed);
+            self.position_offsets
+                .push(self.position_offsets.last().unwrap() + packed.len() - k + 1);
+            self.patterns.push(packed);
         }
-        let bits = (this.heads.len().max(64) * 16).next_power_of_two();
-        this.probe = vec![0; bits / 64];
-        for &hash in this.heads.keys() {
+        // Extension is also used by reusable union states. Restore every raw
+        // candidate there; pruning is local to a stateless all-genome search.
+        let count = *self.position_offsets.last().unwrap();
+        self.active = vec![u64::MAX; count.div_ceil(64)];
+        if count % 64 != 0 {
+            *self.active.last_mut().unwrap() = (1u64 << (count % 64)) - 1;
+        }
+        self.rebuild();
+        Ok(())
+    }
+
+    fn active_positions(&self) -> usize {
+        self.active.iter().map(|w| w.count_ones() as usize).sum()
+    }
+
+    fn mark_present(&self, present: &mut [u64], fragment: Fragment) {
+        let start = self.position_offsets[fragment.hit.pattern as usize] + fragment.begin;
+        let end = self.position_offsets[fragment.hit.pattern as usize] + fragment.end
+            - self.options.k
+            + 1;
+        mark_position_range(present, start, end);
+    }
+
+    fn retain_present(&mut self, present: &[u64]) -> bool {
+        let mut changed = false;
+        for (active, &seen) in self.active.iter_mut().zip(present) {
+            let new = *active & seen;
+            changed |= new != *active;
+            *active = new;
+        }
+        if changed {
+            self.rebuild();
+        }
+        changed
+    }
+
+    fn rebuild(&mut self) {
+        self.heads = FxHashMap::with_capacity_and_hasher(
+            self.active_positions()
+                .saturating_mul(if self.options.forward_only { 1 } else { 2 }),
+            Default::default(),
+        );
+        for (id, (posting, &hash)) in self
+            .postings
+            .iter_mut()
+            .zip(&self.posting_hashes)
+            .enumerate()
+        {
+            let bit = self.position_offsets[posting.pattern as usize] + posting.offset as usize;
+            posting.next = NO_POSTING;
+            if self.active[bit / 64] & (1u64 << (bit % 64)) != 0 {
+                posting.next = self.heads.insert(hash, id as u32).unwrap_or(NO_POSTING);
+            }
+        }
+        // A unique hash has exactly one possible proto position. After an
+        // exact extension, its following unique positions cannot discover any
+        // new alignment. Stop at repeats, collisions, proto/strand boundaries,
+        // or the end of the verified range. Rebuild after additions: a new
+        // proto may invalidate an old hash's uniqueness.
+        self.unique_runs = vec![0; self.postings.len()];
+        for &head in self.heads.values() {
+            if self.postings[head as usize].next == NO_POSTING {
+                self.unique_runs[head as usize] = 1;
+            }
+        }
+        for i in (0..self.postings.len().saturating_sub(1)).rev() {
+            if self.unique_runs[i] != 0
+                && self.postings[i].pattern == self.postings[i + 1].pattern
+                && self.postings[i].reverse == self.postings[i + 1].reverse
+            {
+                self.unique_runs[i] += self.unique_runs[i + 1];
+            }
+        }
+        let bits = (self.heads.len().max(64) * 16).next_power_of_two();
+        self.probe = vec![0; bits / 64];
+        for &hash in self.heads.keys() {
             let bit = hash as usize & (bits - 1);
-            this.probe[bit / 64] |= 1 << (bit % 64);
+            self.probe[bit / 64] |= 1 << (bit % 64);
         }
-        Ok(this)
     }
 
     // SIMD hashes visit every seed position. A cached exact range consumes all
@@ -199,9 +300,11 @@ impl FragmentIndex {
         origin: u64,
         mut accept: impl FnMut(Fragment) -> io::Result<()>,
     ) -> io::Result<()> {
+        if self.heads.is_empty() {
+            return Ok(());
+        }
         let k = self.options.k;
         let mut hashes = Vec::new();
-        let mut mini_pos = Vec::new();
         let mut covered: FxHashMap<(u32, bool, i64), (usize, usize)> = FxHashMap::default();
         for run in &query.runs {
             for start in (run.start..run.end).step_by(self.options.chunk_bases) {
@@ -211,19 +314,18 @@ impl FragmentIndex {
                     continue;
                 }
                 let seq = query.forward.slice(start..end);
-                mini_pos.clear();
-                minimizers(self.options.m, k - self.options.m + 1).run(seq, &mut mini_pos);
-                if !mini_pos.iter().any(|&p| {
-                    self.minis
-                        .contains(&seq.slice(p as usize..p as usize + self.options.m).as_u64())
-                }) {
-                    continue;
-                }
+                // The dense seed hash probe already rejects absent candidates.
+                // A minimizer prepass duplicates work on shared-genome chunks;
+                // directly hashing every k-mer preserves the same exact checks.
                 hashes.clear();
                 NtHasher::<false>::new(k)
                     .hash_kmers_simd(seq, 1)
                     .collect_into(&mut hashes);
-                for (local, &hash) in hashes.iter().take(core_end - start).enumerate() {
+                let mut local = 0;
+                while local < hashes.len().min(core_end - start) {
+                    let hash = hashes[local];
+                    let physical_q = start + local;
+                    local += 1;
                     let bit = hash as usize & (self.probe.len() * 64 - 1);
                     if self.probe[bit / 64] & (1 << (bit % 64)) == 0 {
                         continue;
@@ -231,7 +333,11 @@ impl FragmentIndex {
                     let Some(&head) = self.heads.get(&hash) else {
                         continue;
                     };
-                    let physical_q = start + local;
+                    let unique_run = if self.postings[head as usize].next == NO_POSTING {
+                        self.unique_runs[head as usize] as usize
+                    } else {
+                        0
+                    };
                     let mut next = head;
                     while next != NO_POSTING {
                         let posting = &self.postings[next as usize];
@@ -243,11 +349,18 @@ impl FragmentIndex {
                             physical_q
                         };
                         let key = (posting.pattern, posting.reverse, q as i64 - r as i64);
-                        if covered
-                            .get(&key)
-                            .is_some_and(|&(a, b)| a <= r && r + k <= b)
-                        {
-                            continue;
+                        if let Some(&(a, b)) = covered.get(&key) {
+                            if a <= r && r + k <= b {
+                                if unique_run > 1 {
+                                    let remaining = if posting.reverse {
+                                        r - a + 1
+                                    } else {
+                                        b - r - k + 1
+                                    };
+                                    local += unique_run.min(remaining) - 1;
+                                }
+                                continue;
+                            }
                         }
                         let proto = &self.patterns[posting.pattern as usize];
                         let (qforward, qbackward, qb) = if posting.reverse {
@@ -297,11 +410,36 @@ impl FragmentIndex {
                                 reverse: posting.reverse,
                             },
                         })?;
+                        if unique_run > 1 {
+                            let remaining = if posting.reverse {
+                                r - begin + 1
+                            } else {
+                                end - r - k + 1
+                            };
+                            local += unique_run.min(remaining) - 1;
+                        }
                     }
                 }
             }
         }
         Ok(())
+    }
+}
+
+fn mark_position_range(words: &mut [u64], start: usize, end: usize) {
+    if start >= end {
+        return;
+    }
+    let first = start / 64;
+    let last = (end - 1) / 64;
+    let left = u64::MAX << (start % 64);
+    let right = u64::MAX >> (63 - ((end - 1) % 64));
+    if first == last {
+        words[first] |= left & right;
+    } else {
+        words[first] |= left;
+        words[first + 1..last].fill(u64::MAX);
+        words[last] |= right;
     }
 }
 
@@ -371,6 +509,75 @@ fn context_path(scratch: &Path, genome: usize, shard: usize) -> PathBuf {
     scratch.join(format!("contexts-{genome}-{shard}.zst"))
 }
 
+fn sort_encode_records(records: &mut Vec<Record>, bytes: &mut Vec<u8>) {
+    records.sort_unstable_by_key(|r| (r.begin, r.end, r.hit.contig, r.hit.start, r.hit.reverse));
+    records.dedup_by_key(|r| (r.begin, r.end, r.hit.contig, r.hit.start, r.hit.reverse));
+    bytes.clear();
+    bytes.reserve(records.len() * RECORD_BYTES);
+    for record in records.iter() {
+        bytes.extend_from_slice(&record.begin.to_le_bytes());
+        bytes.extend_from_slice(&record.end.to_le_bytes());
+        bytes.extend_from_slice(&record.hit.start.to_le_bytes());
+        bytes.extend_from_slice(&record.hit.contig.to_le_bytes());
+        bytes.extend_from_slice(&u32::from(record.hit.reverse).to_le_bytes());
+    }
+}
+
+// Streaming batch searches use one sequential scratch file per worker/shard,
+// rather than one compressed file per genome/shard. Scratch evidence is short
+// lived and buffered; reusable state keeps its existing compressed format.
+struct ContextWriter {
+    shards: Vec<ContextBuffer>,
+    bytes: Vec<u8>,
+}
+
+struct ContextBuffer {
+    path: PathBuf,
+    bytes: Vec<u8>,
+}
+
+impl ContextBuffer {
+    fn flush(&mut self) -> io::Result<()> {
+        if !self.bytes.is_empty() {
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&self.path)?
+                .write_all(&self.bytes)?;
+            self.bytes.clear();
+        }
+        Ok(())
+    }
+}
+
+fn worker_context_path(scratch: &Path, worker: usize, shard: usize) -> PathBuf {
+    scratch.join(format!("worker-{worker}-contexts-{shard}.bin"))
+}
+
+impl ContextWriter {
+    fn new(scratch: &Path, worker: usize, shards: usize) -> io::Result<Self> {
+        Ok(Self {
+            shards: (0..shards)
+                .map(|shard| {
+                    let path = worker_context_path(scratch, worker, shard);
+                    File::create(&path)?;
+                    Ok(ContextBuffer {
+                        path,
+                        bytes: Vec::with_capacity(64 * 1024),
+                    })
+                })
+                .collect::<io::Result<_>>()?,
+            bytes: Vec::new(),
+        })
+    }
+
+    fn finish(self) -> io::Result<()> {
+        for mut shard in self.shards {
+            shard.flush()?;
+        }
+        Ok(())
+    }
+}
+
 impl ContextSink {
     fn new(shards: usize, reference: &Reference, k: usize) -> Self {
         Self {
@@ -399,23 +606,31 @@ impl ContextSink {
         let mut compressor = zstd::bulk::Compressor::new(1)?;
         let mut bytes = Vec::new();
         for (shard, records) in self.shards.iter_mut().enumerate() {
-            records.sort_unstable_by_key(|r| {
-                (r.begin, r.end, r.hit.contig, r.hit.start, r.hit.reverse)
-            });
-            records.dedup_by_key(|r| (r.begin, r.end, r.hit.contig, r.hit.start, r.hit.reverse));
-            bytes.clear();
-            bytes.reserve(records.len() * RECORD_BYTES);
-            for record in records.iter() {
-                bytes.extend_from_slice(&record.begin.to_le_bytes());
-                bytes.extend_from_slice(&record.end.to_le_bytes());
-                bytes.extend_from_slice(&record.hit.start.to_le_bytes());
-                bytes.extend_from_slice(&record.hit.contig.to_le_bytes());
-                bytes.extend_from_slice(&u32::from(record.hit.reverse).to_le_bytes());
-            }
+            sort_encode_records(records, &mut bytes);
             std::fs::write(
                 context_path(scratch, genome, shard),
                 compressor.compress(&bytes)?,
             )?;
+        }
+        Ok(())
+    }
+
+    fn finish_to(mut self, writer: &mut ContextWriter, genome: usize) -> io::Result<()> {
+        for (shard, records) in self.shards.iter_mut().enumerate() {
+            if records.is_empty() {
+                continue;
+            }
+            sort_encode_records(records, &mut writer.bytes);
+            let mut header = [0u8; 16];
+            header[..8].copy_from_slice(&(genome as u64).to_le_bytes());
+            header[8..].copy_from_slice(&(records.len() as u64).to_le_bytes());
+            let target = &mut writer.shards[shard];
+            target.bytes.extend_from_slice(&header);
+            target.bytes.extend_from_slice(&writer.bytes);
+            // Bound open descriptors by active workers rather than workers*shards.
+            if target.bytes.len() >= 64 * 1024 {
+                target.flush()?;
+            }
         }
         Ok(())
     }
@@ -479,7 +694,7 @@ fn reference_contexts(
     reference: &Reference,
     shards: usize,
     k: usize,
-    scratch: &Path,
+    writer: &mut ContextWriter,
 ) -> io::Result<ScanStats> {
     let mut sink = ContextSink::new(shards, reference, k);
     let mut stats = ScanStats {
@@ -507,7 +722,7 @@ fn reference_contexts(
             }
         }
     }
-    sink.finish(scratch, 0)?;
+    sink.finish_to(writer, 0)?;
     Ok(stats)
 }
 
@@ -517,7 +732,8 @@ fn scan_query(
     input: &Path,
     id: usize,
     shards: usize,
-    scratch: &Path,
+    writer: &mut ContextWriter,
+    mut present: Option<&mut [u64]>,
 ) -> io::Result<(GenomeMeta, ScanStats)> {
     let mut sink = ContextSink::new(shards, reference, index.options.k);
     let mut stats = ScanStats {
@@ -536,14 +752,21 @@ fn scan_query(
             let contig =
                 u32::try_from(meta.contigs.len()).map_err(|_| invalid("too many contigs"))?;
             let sequence = parser.get_dna_string();
-            let packed = PackedContig::new(sequence, index.options.k);
             meta.contigs.push(ContigMeta {
                 name: header_name(&parser),
                 start: origin,
                 len: sequence.len(),
             });
+            if index.heads.is_empty() {
+                origin += sequence.len() as u64;
+                continue;
+            }
+            let packed = PackedContig::new(sequence, index.options.k);
             let mut cache = AlignmentCache::default();
             index.scan(&packed, contig, origin, |fragment| {
+                if let Some(bits) = present.as_deref_mut() {
+                    index.mark_present(bits, fragment);
+                }
                 consume_fragment(
                     reference,
                     fragment,
@@ -558,7 +781,7 @@ fn scan_query(
             origin += packed.len() as u64;
         }
     }
-    sink.finish(scratch, id)?;
+    sink.finish_to(writer, id)?;
     eprintln!(
         "[genome_scan]\t{}\t{} validity ranges\t{} alignments\t{} cached",
         id + 1,
@@ -675,35 +898,69 @@ fn reduce_ranges(
     output
 }
 
+fn read_worker_contexts(
+    input: &mut impl Read,
+    contexts: &mut Vec<Context>,
+    bytes: &mut Vec<u8>,
+    genomes: usize,
+) -> io::Result<()> {
+    loop {
+        let mut header = [0u8; 16];
+        if input.read(&mut header[..1])? == 0 {
+            return Ok(());
+        }
+        input.read_exact(&mut header[1..])?;
+        let genome = usize::try_from(u64::from_le_bytes(header[..8].try_into().unwrap()))
+            .map_err(|_| invalid("invalid context genome"))?;
+        let count = usize::try_from(u64::from_le_bytes(header[8..].try_into().unwrap()))
+            .map_err(|_| invalid("invalid context batch size"))?;
+        if genome >= genomes {
+            return Err(invalid("context genome outside input collection"));
+        }
+        let size = count
+            .checked_mul(RECORD_BYTES)
+            .ok_or_else(|| invalid("context batch too large"))?;
+        bytes.clear();
+        bytes
+            .try_reserve(size)
+            .map_err(|_| invalid("context batch too large"))?;
+        bytes.resize(size, 0);
+        input.read_exact(bytes)?;
+        for record in bytes.chunks_exact(RECORD_BYTES) {
+            contexts.push(Context {
+                genome,
+                record: Record {
+                    begin: u64::from_le_bytes(record[..8].try_into().unwrap()),
+                    end: u64::from_le_bytes(record[8..16].try_into().unwrap()),
+                    hit: Hit {
+                        pattern: 0,
+                        start: u64::from_le_bytes(record[16..24].try_into().unwrap()),
+                        contig: u32::from_le_bytes(record[24..28].try_into().unwrap()),
+                        reverse: u32::from_le_bytes(record[28..32].try_into().unwrap()) != 0,
+                    },
+                },
+            });
+        }
+    }
+}
+
 fn reduce_shard(
     reference: &Reference,
     scratch: &Path,
     shard: usize,
     shards: usize,
+    workers: usize,
     genomes: usize,
     k: usize,
 ) -> io::Result<Vec<VerifiedMatch>> {
     let mut contexts = Vec::new();
-    for genome in 0..genomes {
-        let bytes = zstd::stream::decode_all(File::open(context_path(scratch, genome, shard))?)?;
-        if bytes.len() % RECORD_BYTES != 0 {
-            return Err(invalid("invalid validity range record size"));
-        }
-        for bytes in bytes.chunks_exact(RECORD_BYTES) {
-            contexts.push(Context {
-                genome,
-                record: Record {
-                    begin: u64::from_le_bytes(bytes[..8].try_into().unwrap()),
-                    end: u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
-                    hit: Hit {
-                        pattern: 0,
-                        start: u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-                        contig: u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
-                        reverse: u32::from_le_bytes(bytes[28..32].try_into().unwrap()) != 0,
-                    },
-                },
-            });
-        }
+    let mut bytes = Vec::new();
+    for worker in 0..workers {
+        let mut input = BufReader::with_capacity(
+            64 * 1024,
+            File::open(worker_context_path(scratch, worker, shard))?,
+        );
+        read_worker_contexts(&mut input, &mut contexts, &mut bytes, genomes)?;
     }
     let bases = reference
         .meta
@@ -717,7 +974,37 @@ fn reduce_shard(
 }
 // For a fixed reference contig, orientation and diagonal, a maximal exact
 // alignment interval can serve every seed inside it. No probabilistic LCEs.
-type AlignmentCache = FxHashMap<(u32, bool, i64), BTreeMap<usize, usize>>;
+type AlignmentCache = FxHashMap<(u32, bool, i64), AlignmentIntervals>;
+
+#[derive(Default)]
+enum AlignmentIntervals {
+    #[default]
+    Empty,
+    Single(usize, usize),
+    Multiple(BTreeMap<usize, usize>),
+}
+
+impl AlignmentIntervals {
+    fn preceding(&self, position: usize) -> Option<(usize, usize)> {
+        match self {
+            Self::Empty => None,
+            Self::Single(begin, end) => (*begin <= position).then_some((*begin, *end)),
+            Self::Multiple(ranges) => ranges.range(..=position).next_back().map(|(&a, &b)| (a, b)),
+        }
+    }
+    fn insert(&mut self, begin: usize, end: usize) {
+        match self {
+            Self::Empty => *self = Self::Single(begin, end),
+            Self::Single(old_begin, old_end) if *old_begin == begin => *old_end = end,
+            Self::Single(old_begin, old_end) => {
+                *self = Self::Multiple(BTreeMap::from([(*old_begin, *old_end), (begin, end)]));
+            }
+            Self::Multiple(ranges) => {
+                ranges.insert(begin, end);
+            }
+        }
+    }
+}
 
 fn alignment_context(
     reference: &Reference,
@@ -740,7 +1027,7 @@ fn alignment_context(
     };
     let key = (anchor.hit.contig, reverse, q as i64 - r as i64);
     let intervals = cache.entry(key).or_default();
-    if let Some((&begin, &end)) = intervals.range(..=r).next_back() {
+    if let Some((begin, end)) = intervals.preceding(r) {
         if end >= r + anchor.len {
             stats.cache_hits += 1;
             let (left, right) = ((r - begin) as u64, (end - r - anchor.len) as u64);
@@ -896,11 +1183,44 @@ pub fn locate_mums(
     scratch_parent: Option<&Path>,
     options: LocateOptions,
 ) -> io::Result<LocateStats> {
+    locate_mums_with_batch(patterns, inputs, output, scratch_parent, options, 256)
+}
+
+fn genome_scan_order(genomes: usize, first_batch: usize) -> Vec<usize> {
+    if first_batch == 0 {
+        return (1..genomes).collect();
+    }
+    let initial = first_batch.min(genomes.saturating_sub(1));
+    let mut order = Vec::with_capacity(genomes.saturating_sub(1));
+    let mut seen = vec![false; genomes];
+    for i in 0..initial {
+        let id = if initial == 1 {
+            genomes - 1
+        } else {
+            1 + ((i as u128 * (genomes - 2) as u128) / (initial - 1) as u128) as usize
+        };
+        seen[id] = true;
+        order.push(id);
+    }
+    // Visit lower-quality tail assemblies early on quality-ordered inputs.
+    // Original genome IDs and output order remain unchanged.
+    order.extend((1..genomes).rev().filter(|&id| !seen[id]));
+    order
+}
+
+fn locate_mums_with_batch(
+    patterns: &Path,
+    inputs: &[PathBuf],
+    output: &Path,
+    scratch_parent: Option<&Path>,
+    options: LocateOptions,
+    first_batch: usize,
+) -> io::Result<LocateStats> {
     if inputs.is_empty() {
         return Err(invalid("at least one genome is required"));
     }
     let started = Instant::now();
-    let index = FragmentIndex::new(ProtoIndex::from_fasta(patterns, options)?)?;
+    let mut index = FragmentIndex::new(ProtoIndex::from_fasta(patterns, options)?)?;
     let mut timings = LocateTimings {
         index: started.elapsed().as_secs_f64(),
         ..Default::default()
@@ -908,10 +1228,9 @@ pub fn locate_mums(
     let workers = index.options.threads;
     let shards = workers.min(index.patterns.len().max(1));
     eprintln!(
-        "K2Rmini: indexed {} proto-MUMs ({} seed hashes, {} minimizers); {} workers; one query pass per genome",
+        "K2Rmini: indexed {} proto-MUMs ({} seed hashes); {} workers; one query pass per genome",
         index.patterns.len(),
         index.heads.len(),
-        index.minis.len(),
         workers
     );
     let scratch = if let Some(parent) = scratch_parent {
@@ -924,43 +1243,118 @@ pub fn locate_mums(
     };
     let started = Instant::now();
     let mut reference = read_reference(&index, &inputs[0])?;
-    let mut scan_stats = reference_contexts(&reference, shards, index.options.k, scratch.path())?;
+    let mut reference_writer = ContextWriter::new(scratch.path(), 0, shards)?;
+    let mut scan_stats =
+        reference_contexts(&reference, shards, index.options.k, &mut reference_writer)?;
+    reference_writer.finish()?;
+    if first_batch != 0 {
+        let mut present = vec![0u64; index.active.len()];
+        for &fragment in reference.fragments.iter().flatten() {
+            index.mark_present(&mut present, fragment);
+        }
+        index.retain_present(&present);
+    }
     timings.reference_scan = started.elapsed().as_secs_f64();
     let started = Instant::now();
-    let next = AtomicUsize::new(1);
-    let parts = thread::scope(|scope| -> io::Result<Vec<(usize, GenomeMeta, ScanStats)>> {
-        let mut handles = Vec::new();
-        for _ in 0..workers.min(inputs.len().saturating_sub(1)) {
-            let next = &next;
-            let index = &index;
-            let reference = &reference;
-            let scratch = scratch.path();
-            handles.push(scope.spawn(
-                move || -> io::Result<Vec<(usize, GenomeMeta, ScanStats)>> {
-                    let mut result = Vec::new();
-                    loop {
-                        let id = next.fetch_add(1, Ordering::Relaxed);
-                        if id >= inputs.len() {
-                            break;
+    let query_workers = workers.min(inputs.len().saturating_sub(1));
+    let mut writers = (1..=query_workers)
+        .map(|worker| ContextWriter::new(scratch.path(), worker, shards))
+        .collect::<io::Result<Vec<_>>>()?;
+    let order = genome_scan_order(inputs.len(), first_batch);
+    let mut parts = Vec::with_capacity(order.len());
+    let mut begin = 0;
+    let mut batch_size = if first_batch == 0 {
+        order.len().max(1)
+    } else {
+        first_batch
+    };
+    while begin < order.len() {
+        let end = begin.saturating_add(batch_size).min(order.len());
+        let batch = &order[begin..end];
+        let track = first_batch != 0 && end < order.len() && !index.heads.is_empty();
+        let next = AtomicUsize::new(0);
+        let results = thread::scope(
+            |scope| -> io::Result<Vec<(Vec<(usize, GenomeMeta, ScanStats)>, Vec<u64>)>> {
+                let mut handles = Vec::new();
+                for writer in writers.iter_mut().take(batch.len()) {
+                    let next = &next;
+                    let index = &index;
+                    let reference = &reference;
+                    handles.push(scope.spawn(move || -> io::Result<_> {
+                        let mut result = Vec::new();
+                        let mut surviving = if track {
+                            index.active.clone()
+                        } else {
+                            Vec::new()
+                        };
+                        let mut present = vec![0; surviving.len()];
+                        loop {
+                            let cursor = next.fetch_add(1, Ordering::Relaxed);
+                            if cursor >= batch.len() {
+                                break;
+                            }
+                            let id = batch[cursor];
+                            present.fill(0);
+                            let (meta, stats) = scan_query(
+                                index,
+                                reference,
+                                &inputs[id],
+                                id,
+                                shards,
+                                writer,
+                                if track { Some(&mut present) } else { None },
+                            )?;
+                            if track {
+                                for (keep, &seen) in surviving.iter_mut().zip(&present) {
+                                    *keep &= seen;
+                                }
+                            }
+                            result.push((id, meta, stats));
                         }
-                        let (meta, stats) =
-                            scan_query(index, reference, &inputs[id], id, shards, scratch)?;
-                        result.push((id, meta, stats));
-                    }
-                    Ok(result)
-                },
-            ));
+                        Ok((result, surviving))
+                    }));
+                }
+                handles
+                    .into_iter()
+                    .map(|h| {
+                        h.join()
+                            .map_err(|_| io::Error::other("genome worker panicked"))?
+                    })
+                    .collect()
+            },
+        )?;
+        let prune_started = Instant::now();
+        let before = index.active_positions();
+        let mut surviving = if track {
+            index.active.clone()
+        } else {
+            Vec::new()
+        };
+        for (result, seen) in results {
+            parts.extend(result);
+            if track {
+                for (keep, observed) in surviving.iter_mut().zip(seen) {
+                    *keep &= observed;
+                }
+            }
         }
-        let mut result = Vec::new();
-        for handle in handles {
-            result.extend(
-                handle
-                    .join()
-                    .map_err(|_| io::Error::other("genome worker panicked"))??,
+        if track {
+            index.retain_present(&surviving);
+            eprintln!(
+                "[position_prune]\t{} genomes\t{} -> {} seed positions\t{} hashes\t{:.6}s",
+                end + 1,
+                before,
+                index.active_positions(),
+                index.heads.len(),
+                prune_started.elapsed().as_secs_f64()
             );
         }
-        Ok(result)
-    })?;
+        begin = end;
+        batch_size = batch_size.saturating_mul(4);
+    }
+    for writer in writers {
+        writer.finish()?;
+    }
     timings.scan_extend = started.elapsed().as_secs_f64();
     let mut metas: Vec<Option<GenomeMeta>> = (0..inputs.len()).map(|_| None).collect();
     for (id, meta, stats) in parts {
@@ -970,24 +1364,31 @@ pub fn locate_mums(
     reference.contigs.clear();
     let started = Instant::now();
     let k = index.options.k;
-    let reductions =
-        thread::scope(|scope| -> io::Result<Vec<Vec<VerifiedMatch>>> {
-            let mut handles = Vec::new();
-            for shard in 0..shards {
-                let reference = &reference;
-                let scratch = scratch.path();
-                handles.push(scope.spawn(move || {
-                    reduce_shard(reference, scratch, shard, shards, inputs.len(), k)
-                }));
-            }
-            handles
-                .into_iter()
-                .map(|h| {
-                    h.join()
-                        .map_err(|_| io::Error::other("context reducer panicked"))?
-                })
-                .collect()
-        })?;
+    let reductions = thread::scope(|scope| -> io::Result<Vec<Vec<VerifiedMatch>>> {
+        let mut handles = Vec::new();
+        for shard in 0..shards {
+            let reference = &reference;
+            let scratch = scratch.path();
+            handles.push(scope.spawn(move || {
+                reduce_shard(
+                    reference,
+                    scratch,
+                    shard,
+                    shards,
+                    query_workers + 1,
+                    inputs.len(),
+                    k,
+                )
+            }));
+        }
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join()
+                    .map_err(|_| io::Error::other("context reducer panicked"))?
+            })
+            .collect()
+    })?;
     timings.reduce = started.elapsed().as_secs_f64();
     let reference_bases = reference
         .meta
@@ -1085,6 +1486,383 @@ pub fn locate_mums(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presence_ranges_exactly_mark_half_open_windows_across_word_boundaries() {
+        for start in 0..193 {
+            for end in start..193 {
+                let mut bits = vec![0; 4];
+                mark_position_range(&mut bits, start, end);
+                for position in 0..256 {
+                    assert_eq!(
+                        bits[position / 64] & (1 << (position % 64)) != 0,
+                        (start..end).contains(&position),
+                        "{start}..{end}: {position}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn alignment_inline_intervals_match_ordered_map_for_disordered_insertions() {
+        let mut actual = AlignmentIntervals::default();
+        let mut expected = BTreeMap::new();
+        let mut rng = 180019u64;
+        for _ in 0..1000 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let begin = ((rng >> 32) % 600) as usize;
+            let end = begin + (rng as usize % 150);
+            actual.insert(begin, end);
+            expected.insert(begin, end);
+            for position in [0, begin.saturating_sub(1), begin, begin + 20, 500, 700] {
+                assert_eq!(
+                    actual.preceding(position),
+                    expected
+                        .range(..=position)
+                        .next_back()
+                        .map(|(&a, &b)| (a, b))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn progressive_scan_order_visits_each_genome_once() {
+        for genomes in 0..129 {
+            for batch in [0, 1, 2, 7, 256, usize::MAX] {
+                let mut ids = genome_scan_order(genomes, batch);
+                assert_eq!(ids.len(), genomes.saturating_sub(1));
+                ids.sort_unstable();
+                assert_eq!(ids, (1..genomes).collect::<Vec<_>>());
+            }
+        }
+    }
+
+    #[test]
+    fn pruning_preserves_internal_seed_islands_and_exact_fragment_cache_skips() -> io::Result<()> {
+        let mut rng = 180020u64;
+        let core: Vec<_> = (0..500)
+            .map(|_| {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                b"ACGT"[(rng >> 62) as usize]
+            })
+            .collect();
+        let mut broken = core.clone();
+        broken[200] = b'N';
+        broken[275] = if broken[275] == b'A' { b'C' } else { b'A' };
+        for k in [3, 31, 33, 65] {
+            for forward_only in [false, true] {
+                for chunk_bases in [1, 7, 128] {
+                    let mut source = ProtoIndex {
+                        options: LocateOptions {
+                            k,
+                            m: k.min(21),
+                            threads: 3,
+                            chunk_bases,
+                            forward_only,
+                        },
+                        patterns: Vec::new(),
+                        sequences: PackedSeqVec::default(),
+                    };
+                    source.add_pattern(&core)?;
+                    source.add_pattern(&core[100..300])?;
+                    let mut index = FragmentIndex::new(source)?;
+                    let before = index.active_positions();
+                    let mut keep = vec![0; index.active.len()];
+                    for pat in 0..index.patterns.len() {
+                        let offset = index.position_offsets[pat];
+                        let count = index.position_offsets[pat + 1] - offset;
+                        for i in 0..count {
+                            if ((30..45).contains(&i) || (100..170).contains(&i)) && i % 7 != 0 {
+                                mark_position_range(&mut keep, offset + i, offset + i + 1);
+                            }
+                        }
+                    }
+                    assert!(index.retain_present(&keep));
+                    assert!(index.active_positions() < before);
+                    for &head in index.heads.values() {
+                        let mut next = head;
+                        while next != NO_POSTING {
+                            let p = &index.postings[next as usize];
+                            let bit =
+                                index.position_offsets[p.pattern as usize] + p.offset as usize;
+                            assert_ne!(keep[bit / 64] & (1 << (bit % 64)), 0);
+                            next = p.next;
+                        }
+                    }
+                    let queries = [&core, &broken, &reverse(&core)];
+                    let actual = queries
+                        .iter()
+                        .map(|q| fragments(&index, q))
+                        .collect::<io::Result<Vec<_>>>()?;
+                    index.unique_runs.fill(0);
+                    let exhaustive = queries
+                        .iter()
+                        .map(|q| fragments(&index, q))
+                        .collect::<io::Result<Vec<_>>>()?;
+                    assert_eq!(
+                        actual, exhaustive,
+                        "k={k}, forward={forward_only}, chunk={chunk_bases}"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn extending_pruned_index_restores_raw_candidates_for_union_states() -> io::Result<()> {
+        let mut rng = 180021u64;
+        let core: Vec<_> = (0..200)
+            .map(|_| {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                b"ACGT"[(rng >> 62) as usize]
+            })
+            .collect();
+        let options = LocateOptions {
+            k: 31,
+            m: 21,
+            threads: 2,
+            chunk_bases: 7,
+            forward_only: false,
+        };
+        let mut source = ProtoIndex {
+            options: options.clone(),
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        source.add_pattern(&core)?;
+        let mut index = FragmentIndex::new(source)?;
+        assert!(index.retain_present(&vec![0; index.active.len()]));
+        assert!(index.heads.is_empty());
+        let mut addition = ProtoIndex {
+            options,
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        addition.add_pattern(&core[50..150])?;
+        index.extend(addition)?;
+        assert_eq!(index.active_positions(), (200 - 31 + 1) + (100 - 31 + 1));
+        let found = fragments(&index, &core)?;
+        assert!(found.iter().any(|f| f.2 == 0 && f.0 == 0 && f.1 == 200));
+        assert!(found.iter().any(|f| f.2 == 1 && f.0 == 0 && f.1 == 100));
+        Ok(())
+    }
+
+    #[test]
+    fn vectorizable_dna_validation_preserves_every_ascii_and_ambiguity_boundary() {
+        for len in [0, 1, 7, 15, 16, 31, 32, 63, 64, 65, 129] {
+            let mut sequence: Vec<_> = b"ACGTacgt".iter().copied().cycle().take(len).collect();
+            assert!(all_dna(&sequence));
+            for pos in 0..len {
+                let previous = sequence[pos];
+                for base in 0..=255 {
+                    sequence[pos] = base;
+                    assert_eq!(
+                        all_dna(&sequence),
+                        is_dna(base),
+                        "len={len} pos={pos} base={base}"
+                    );
+                }
+                sequence[pos] = previous;
+            }
+        }
+    }
+
+    #[test]
+    fn worker_context_batches_preserve_genome_ids_dedup_strands_and_empty_shards() -> io::Result<()>
+    {
+        let scratch = tempfile::tempdir()?;
+        let mut writer = ContextWriter::new(scratch.path(), 0, 3)?;
+        let record = Record {
+            begin: 2,
+            end: 39,
+            hit: Hit {
+                pattern: 0,
+                contig: 7,
+                start: 53,
+                reverse: true,
+            },
+        };
+        for genome in [4, 0, 2] {
+            let sink = ContextSink {
+                shards: vec![vec![record, record], vec![], vec![]],
+                reference_bases: 100,
+                k: 3,
+            };
+            sink.finish_to(&mut writer, genome)?;
+        }
+        writer.finish()?;
+        let bytes = std::fs::read(worker_context_path(scratch.path(), 0, 0))?;
+        assert_eq!(bytes.len(), 3 * (16 + RECORD_BYTES));
+        let mut decoded = Vec::new();
+        read_worker_contexts(&mut bytes.as_slice(), &mut decoded, &mut Vec::new(), 5)?;
+        assert_eq!(
+            decoded.iter().map(|c| c.genome).collect::<Vec<_>>(),
+            [4, 0, 2]
+        );
+        for c in decoded {
+            assert_eq!(
+                (c.record.begin, c.record.end, c.record.hit),
+                (record.begin, record.end, record.hit)
+            );
+        }
+        for shard in [1, 2] {
+            assert_eq!(
+                std::fs::metadata(worker_context_path(scratch.path(), 0, shard))?.len(),
+                0
+            );
+        }
+        for length in 1..16 + RECORD_BYTES {
+            assert!(
+                read_worker_contexts(&mut &bytes[..length], &mut Vec::new(), &mut Vec::new(), 5)
+                    .is_err()
+            );
+        }
+        assert!(
+            read_worker_contexts(&mut bytes.as_slice(), &mut Vec::new(), &mut Vec::new(), 4)
+                .is_err()
+        );
+        let mut writer = ContextWriter::new(scratch.path(), 1, 1)?;
+        let records: Vec<_> = (0..4096)
+            .map(|i| Record {
+                begin: i,
+                end: i + 37,
+                hit: Hit {
+                    start: i + 53,
+                    ..record.hit
+                },
+            })
+            .collect();
+        let sink = ContextSink {
+            shards: vec![records],
+            reference_bases: 5000,
+            k: 3,
+        };
+        sink.finish_to(&mut writer, 9)?;
+        assert!(std::fs::metadata(worker_context_path(scratch.path(), 1, 0))?.len() > 64 * 1024);
+        writer.finish()?;
+        let bytes = std::fs::read(worker_context_path(scratch.path(), 1, 0))?;
+        let mut decoded = Vec::new();
+        read_worker_contexts(&mut bytes.as_slice(), &mut decoded, &mut Vec::new(), 10)?;
+        assert_eq!(decoded.len(), 4096);
+        assert!(decoded.iter().all(|c| c.genome == 9));
+        for (i, c) in decoded.iter().enumerate() {
+            assert_eq!(
+                (c.record.begin, c.record.hit.start),
+                (i as u64, i as u64 + 53)
+            );
+        }
+        Ok(())
+    }
+
+    fn fragments(
+        index: &FragmentIndex,
+        sequence: &[u8],
+    ) -> io::Result<Vec<(usize, usize, u32, u64, bool)>> {
+        let query = PackedContig::new(sequence, index.options.k);
+        let mut result = Vec::new();
+        index.scan(&query, 0, 0, |f| {
+            result.push((f.begin, f.end, f.hit.pattern, f.hit.start, f.hit.reverse));
+            Ok(())
+        })?;
+        result.sort_unstable();
+        Ok(result)
+    }
+
+    #[test]
+    fn unique_seed_skips_preserve_every_fragment_across_strands_chunks_and_repeats()
+    -> io::Result<()> {
+        let mut state = 173101u64;
+        let core: Vec<_> = (0..1400)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                b"ACGT"[(state >> 62) as usize]
+            })
+            .collect();
+        let mut broken = core.clone();
+        broken[367] = b'N';
+        broken[896] = b"ACGT"[(broken[896] as usize + 1) % 4];
+        let queries = [core.clone(), reverse(&core), broken];
+        for k in [3, 7, 15, 31, 32, 33, 63] {
+            for forward_only in [false, true] {
+                for chunk_bases in [1, 7, 32, 8192] {
+                    let mut source = ProtoIndex {
+                        options: LocateOptions {
+                            k,
+                            m: k.min(21),
+                            threads: 2,
+                            chunk_bases,
+                            forward_only,
+                        },
+                        patterns: Vec::new(),
+                        sequences: PackedSeqVec::default(),
+                    };
+                    source.add_pattern(&core)?;
+                    source.add_pattern(&core[113..471])?;
+                    source.add_pattern(&reverse(&core[650..900]))?;
+                    source.add_pattern(&core[113..471])?;
+                    let mut index = FragmentIndex::new(source)?;
+                    if k >= 15 {
+                        assert!(index.unique_runs.iter().any(|&n| n >= 100));
+                    }
+                    let actual = queries
+                        .iter()
+                        .map(|q| fragments(&index, q))
+                        .collect::<io::Result<Vec<_>>>()?;
+                    index.unique_runs.fill(0);
+                    let exhaustive = queries
+                        .iter()
+                        .map(|q| fragments(&index, q))
+                        .collect::<io::Result<Vec<_>>>()?;
+                    assert_eq!(
+                        actual, exhaustive,
+                        "k={k}, forward={forward_only}, chunk={chunk_bases}"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn adding_proto_invalidates_skips_that_would_hide_its_internal_matches() -> io::Result<()> {
+        let mut state = 173102u64;
+        let core: Vec<_> = (0..1000)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                b"ACGT"[(state >> 62) as usize]
+            })
+            .collect();
+        let options = LocateOptions {
+            k: 31,
+            m: 21,
+            threads: 2,
+            chunk_bases: 8192,
+            forward_only: false,
+        };
+        let mut source = ProtoIndex {
+            options: options.clone(),
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        source.add_pattern(&core)?;
+        let mut index = FragmentIndex::new(source)?;
+        assert!(index.unique_runs.iter().any(|&n| n >= 900));
+        let mut added = ProtoIndex {
+            options,
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        added.add_pattern(&core[300..700])?;
+        index.extend(added)?;
+        let actual = fragments(&index, &core)?;
+        assert!(actual.iter().any(|f| f.2 == 1 && f.0 == 0 && f.1 == 400));
+        index.unique_runs.fill(0);
+        assert_eq!(actual, fragments(&index, &core)?);
+        Ok(())
+    }
 
     #[test]
     fn fragment_offsets_work_across_packed_word_sizes() -> io::Result<()> {

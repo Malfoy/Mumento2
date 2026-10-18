@@ -5,6 +5,9 @@
 Both GGCAT and K2Rmini use this copy for FASTA/FASTQ parsing. Its gzip, xz,
 and zstd decoders detect compression from input bytes. Synchronous reader
 inputs no longer require `Send`, allowing borrowed archive entry readers.
+The initial SIMD block is filled across short decompressor reads, including
+compression-member boundaries. FASTA/FASTQ parsing treats CRLF as line endings;
+FASTQ also consumes CR/LF correctly when the pair crosses a SIMD block.
 The upstream MIT license is included.
 
 `parallel-processor/` is version 0.2.7, from upstream revision
@@ -14,3 +17,8 @@ lock-free buckets. Bucket headers use zstd skippable frames; checkpoint
 indexes and payloads are compressed frames. The upstream MIT and Apache-2.0
 licenses are included. These disk formats are incompatible with upstream
 GGCAT intermediates.
+
+`matchtigs/` is version 2.1.9. Its upstream source and license are retained;
+the library is built as an `rlib` only. GGCAT statically links this dependency,
+so the unused Rust `dylib` is omitted to support fat LTO and abort-on-panic
+without pulling in an incompatible unwind runtime.

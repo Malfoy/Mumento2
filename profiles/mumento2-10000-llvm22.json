@@ -1,0 +1,18 @@
+{
+  "source_sha256": {
+    "k2rmini/src/locate/stream.rs": "dd7e3f750fe1cf3b32d656a2e019c60a444c741c9422bfd22f7f77445cfca1cb",
+    "src/main.rs": "0dcca2db6ae6832e045a610ab1b0bfec8d8c90bcaf1e1514856e7855b13157da",
+    "Cargo.toml": "62c488d992c1da6f6a9d9357535560053846fb4113ab1070a5df618293497631",
+    "k2rmini/Cargo.toml": "84f7431aeaa33e538bd29e03f326d3fcd5bbfab7316f4c7b4c16136239b178e5"
+  },
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.0\nLLVM version: 22.1.6\n",
+  "training": {
+    "genomes": 10000,
+    "dataset": "Public Salmonella assemblies; now removed from disk",
+    "k": 31,
+    "threads": 32
+  },
+  "profile_sha256": "7b9edf835ceef80caad2de1df84316f8fb77ebd107c07928385373e1c2b76fe1",
+  "profile": "mumento2-10000-llvm22.profdata",
+  "benchmark_binary_sha256": "6c97d7b75730b2e8649186a80aaad2a0fe74e9ea1d702e4e0a86d666a532fa98"
+}

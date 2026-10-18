@@ -1,6 +1,7 @@
 # Build outputs and local experiments
 **/target/
 /benchmarks/
+/.b/
 /mumemto/
 __pycache__/
 *.rs.bk
@@ -10,3 +11,6 @@ __pycache__/
 /.agents/
 /.aws/
 /.codex/
+
+# Local validated executables and historical benchmark evidence
+/artifacts/

@@ -2,23 +2,23 @@
 
 use ::dynamic_dispatch::dynamic_dispatch;
 use assembler_kmers_merge::structs::RetType;
-use assembler_pipeline::OutputFileMode;
 use assembler_pipeline::build_final_unitigs;
+use assembler_pipeline::compute_matchtigs::compute_matchtigs_thread;
 use assembler_pipeline::compute_matchtigs::MatchtigHelperTrait;
 use assembler_pipeline::compute_matchtigs::MatchtigsStorageBackend;
-use assembler_pipeline::compute_matchtigs::compute_matchtigs_thread;
 use assembler_pipeline::eulertigs::build_eulertigs;
 use assembler_pipeline::extend_unitigs::extend_unitigs;
 use assembler_pipeline::get_final_output_writer;
 use assembler_pipeline::maximal_unitig_links::build_maximal_unitigs_links;
+use assembler_pipeline::OutputFileMode;
+use colors::colors_manager::color_types::PartialUnitigsColorStructure;
 use colors::colors_manager::ColorsManager;
 use colors::colors_manager::ColorsMergeManager;
-use colors::colors_manager::color_types::PartialUnitigsColorStructure;
 use config::get_compression_level_info;
 use config::{
-    DEFAULT_PER_CPU_BUFFER_SIZE, INTERMEDIATE_COMPRESSION_LEVEL_FAST,
-    INTERMEDIATE_COMPRESSION_LEVEL_SLOW, KEEP_FILES, MAX_COLORMAP_WRITING_THREADS,
-    MINIMUM_LOG_DELTA_TIME, SwapPriority, get_memory_mode,
+    get_memory_mode, SwapPriority, DEFAULT_PER_CPU_BUFFER_SIZE,
+    INTERMEDIATE_COMPRESSION_LEVEL_FAST, INTERMEDIATE_COMPRESSION_LEVEL_SLOW, KEEP_FILES,
+    MAX_COLORMAP_WRITING_THREADS, MINIMUM_LOG_DELTA_TIME,
 };
 use ggcat_logging::stats;
 use hashes::HashFunctionFactory;
@@ -30,31 +30,31 @@ use io::debug_save_buckets;
 use io::debug_save_single_buckets;
 use io::ident_writer::IdentSequenceWriter;
 use io::sequences_stream::general::GeneralSequenceBlockData;
-use io::{DUPLICATES_BUCKET_EXTRA, compute_stats_from_input_sizes};
-use parallel_processor::buckets::ExtraBucketData;
+use io::{compute_stats_from_input_sizes, DUPLICATES_BUCKET_EXTRA};
 use parallel_processor::buckets::concurrent::BucketsThreadBuffer;
 use parallel_processor::buckets::writers::compressed_binary_writer::CompressedCheckpointSize;
 use parallel_processor::buckets::writers::lock_free_binary_writer::LockFreeBinaryWriter;
+use parallel_processor::buckets::ExtraBucketData;
 use parallel_processor::buckets::{BucketsCount, ExtraBuckets, MultiThreadBuckets};
 use parallel_processor::memory_data_size::MemoryDataSize;
 use parallel_processor::memory_fs::{MemoryFs, RemoveFileMode};
 use parallel_processor::phase_times_monitor::PHASES_TIMES_MONITOR;
 use parallel_processor::utils::scoped_thread_local::ScopedThreadLocal;
-use sequence_output::structured_sequences::StructuredSequenceBackend;
-use sequence_output::structured_sequences::StructuredSequenceBackendInit;
-use sequence_output::structured_sequences::StructuredSequenceBackendWrapper;
-use sequence_output::structured_sequences::StructuredSequenceWriter;
 use sequence_output::structured_sequences::binary::StructSeqBinaryWriter;
 use sequence_output::structured_sequences::binary::StructSeqBinaryWriterWrapper;
 use sequence_output::structured_sequences::fasta::FastaWriterWrapper;
 use sequence_output::structured_sequences::gfa::GFAWriterWrapperV1;
 use sequence_output::structured_sequences::gfa::GFAWriterWrapperV2;
+use sequence_output::structured_sequences::StructuredSequenceBackend;
+use sequence_output::structured_sequences::StructuredSequenceBackendInit;
+use sequence_output::structured_sequences::StructuredSequenceBackendWrapper;
+use sequence_output::structured_sequences::StructuredSequenceWriter;
 use std::any::Any;
 use std::fs::remove_file;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Instant;
 use utils::assembler_phases::AssemblerPhase;
 
@@ -94,7 +94,7 @@ pub fn run_assembler<
     temp_dir: Option<PathBuf>,
     threads_count: usize,
     min_multiplicity: usize,
-    present_in_all_colors: bool,
+    required_color_count: Option<usize>,
     buckets_count_log: Option<usize>,
     default_compression_level: Option<u32>,
     generate_maximal_unitigs_links: bool,
@@ -196,12 +196,21 @@ pub fn run_assembler<
         registry.names.clone()
     };
 
-    let required_colors = if present_in_all_colors {
+    let required_colors = if let Some(requested) = required_color_count {
         anyhow::ensure!(
             AssemblerColorsManager::COLORS_ENABLED && !color_names.is_empty(),
             "All-genome presence filtering requires at least one input genome/color"
         );
-        Some(color_names.len())
+        let required = if requested == 0 {
+            color_names.len()
+        } else {
+            requested
+        };
+        anyhow::ensure!(
+            required <= color_names.len(),
+            "minimum color count exceeds input genome/color count"
+        );
+        Some(required)
     } else {
         None
     };

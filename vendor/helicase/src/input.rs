@@ -371,9 +371,19 @@ impl<'a, R: Read + 'a> ReaderInput<'a, R> {
     pub fn new(reader: R) -> Self {
         let mut decoder = AnyDecoder::new(reader);
         let mut data = vec![0; BUFFER_DEFAULT_SIZE];
-        let len = decoder
-            .read(&mut data[..64])
-            .expect("Error while reading data");
+        // Read may stop at a compression-member boundary before filling the
+        // first SIMD block. A short read is not EOF: presenting its zero
+        // padding to the lexer can truncate or merge subsequent records.
+        let mut len = 0;
+        while len < 64 {
+            let n = decoder
+                .read(&mut data[len..64])
+                .expect("Error while reading data");
+            if n == 0 {
+                break;
+            }
+            len += n;
+        }
         let first_byte = data[0];
         Self {
             data,

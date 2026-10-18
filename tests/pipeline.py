@@ -20,6 +20,150 @@ def rc(sequence):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_input_list_runs_compressed_genomes_with_spaces_and_rejects_duplicates(self):
+        rng = random.Random(180031)
+        core = ''.join(rng.choices('ACGT', k=240))
+        with tempfile.TemporaryDirectory(prefix='mumento2-list-') as directory:
+            directory = Path(directory)
+            inputs = self.write_genomes(directory, [[core], [rc(core)], [core]], 'genome with spaces')
+            listing = directory / 'genomes.list'
+            listing.write_bytes(('\r\n'.join(p.name for p in inputs) + '\r\n\r\n').encode())
+            rows, _ = self.run_tool(directory, 'out.zst', [], '-k', '31', '--input-list', str(listing),
+                                    '--keep-temp', '--temp-dir', str(directory))
+            self.assertEqual(rows, ['240\t0,0,0\t+,-,+\t0,0,0'])
+            graph_list = next(directory.glob('mumento2-*/graph-inputs.list'))
+            self.assertEqual(graph_list.read_text().splitlines(), list(map(str, inputs)))
+            listing.write_text(inputs[0].name + '\n' + inputs[0].name + '\n')
+            run = subprocess.run([str(BIN), '-k', '31', '-o', str(directory/'rejected.zst'),
+                                  '--input-list', str(listing)], capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('more than once', run.stderr)
+            self.assertFalse((directory/'rejected.zst').exists())
+
+    def test_seed_subset_preserves_all_genome_matches_and_internal_fragments(self):
+        rng = random.Random(170031)
+        core = ''.join(rng.choices('ACGT', k=1000))
+        genomes = [[core], [rc(core)], [core[:400], core[370:730], core[700:]]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-seed-subset-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            full, _ = self.run_tool(scratch, 'full.zst', inputs, '-k', '31')
+            self.assertEqual({int(r.split('\t')[0]) for r in full}, {300, 360, 400})
+            for count in (1, 2):
+                subset, _ = self.run_tool(scratch, f'subset-{count}.zst', inputs,
+                                          '-k', '31', '--seed-genomes', str(count))
+                self.assertEqual(set(subset), set(full))
+
+    def test_seed_subset_preserves_threshold_matches_absent_from_first_genome(self):
+        rng = random.Random(170032)
+        a, b, c = [''.join(rng.choices('ACGT', k=n)) for n in (240, 210, 180)]
+        genomes = [[a, c, c], [rc(a), b], [a, b], [rc(b)]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-seed-threshold-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            for minimum, count in ((2, 3), (3, 2)):
+                full, _ = self.run_tool(scratch, f'full-{minimum}.zst', inputs,
+                                        '-k', '31', '-N', str(minimum))
+                subset, _ = self.run_tool(scratch, f'subset-{minimum}.zst', inputs,
+                                          '-k', '31', '-N', str(minimum), '--seed-genomes', str(count))
+                self.assertEqual(set(subset), set(full))
+                self.assertTrue(any(r.startswith('210\t.,') for r in subset))
+
+    def test_seed_subset_rejects_incomplete_threshold_coverage_and_state(self):
+        rng = random.Random(170033)
+        core = ''.join(rng.choices('ACGT', k=100))
+        with tempfile.TemporaryDirectory(prefix='mumento2-seed-reject-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, [[core]]*4, 'g')
+            for extra, message in [(['-N', '2'], 'too small'),
+                                   (['--state', str(scratch/'state')], 'reusable')]:
+                result = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-k', '31',
+                                         '--seed-genomes', '2', '-o', str(scratch/'out.zst'),
+                                         *extra, *map(str, inputs)], capture_output=True, text=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr.lower())
+                self.assertFalse((scratch/'out.zst').exists())
+
+    def run_tool(self, directory, output_name, inputs, *extra):
+        output = directory / output_name
+        run = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-j', '3', '-m', '0.1',
+                              '-o', str(output), *extra, *map(str, inputs)],
+                             capture_output=True, text=True, timeout=90)
+        self.assertEqual(run.returncode, 0, run.stdout[-4000:] + run.stderr[-4000:])
+        rows = zstd.decompress(output.read_bytes()).decode().splitlines()[2:]
+        return rows, run
+
+    @staticmethod
+    def write_genomes(directory, genomes, prefix):
+        paths = []
+        for g, records in enumerate(genomes):
+            path = directory / f'{prefix}-{g}.fa.zst'
+            text = ''.join(f'>c{c}\n{s}\n' for c, s in enumerate(records))
+            path.write_bytes(zstd.compress(text.encode()))
+            paths.append(path)
+        return paths
+
+    def test_thresholds_include_missing_reference_nested_support_and_reject_repeats(self):
+        rng = random.Random(5091)
+        a, b, c, d, nested = [''.join(rng.choices('ACGT', k=n)) for n in (240, 210, 180, 150, 200)]
+        genomes = [[a, b, c, c, nested], [a, b, c, d, nested],
+                   [rc(a), c, d, rc(nested[:120])], [d]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-threshold-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            expected = {
+                '240\t0,0,0,.\t+,+,-,.\t0,0,0,.',
+                '210\t0,0,.,.\t+,+,.,.\t1,1,.,.',
+                '150\t.,0,0,0\t.,+,+,+\t.,3,2,0',
+                '200\t0,0,.,.\t+,+,.,.\t4,4,.,.',
+                '120\t0,0,0,.\t+,+,-,.\t4,4,3,.',
+            }
+            for k, minimum in ((21, 2), (21, 3), (21, 4), (20, 2)):
+                rows, _ = self.run_tool(scratch, f'k{k}-N{minimum}.zst', inputs, '-k', str(k), '-N', str(minimum))
+                wanted = {r for r in expected if sum(p != '.' for p in r.split('\t')[1].split(',')) >= minimum}
+                self.assertEqual(set(rows), wanted)
+
+    def test_incremental_threshold_matches_fresh_build_and_new_only_matches(self):
+        rng = random.Random(2751)
+        core, private, below, novel = [''.join(rng.choices('ACGT', k=n)) for n in (240, 160, 180, 190)]
+        old = [[core, private], [rc(core), below]]
+        new = [[core[:80], core[70:160], core[150:], private, novel], [rc(novel), below]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-update-') as scratch:
+            scratch = Path(scratch)
+            old_inputs = self.write_genomes(scratch, old, 'old')
+            state = scratch / 'state'
+            rows, _ = self.run_tool(scratch, 'initial.zst', old_inputs, '-k', '21', '-N', '2', '--state', str(state))
+            self.assertEqual(rows, ['240\t0,0\t+,-\t0,0'])
+            for path in old_inputs:
+                path.unlink()
+            new_inputs = self.write_genomes(scratch, new, 'new')
+            updated, run = self.run_tool(scratch, 'updated.zst', new_inputs, '--update', str(state))
+            self.assertIn('2 new source reads', run.stderr)
+            self.assertIn('2 cached genomes', run.stderr)
+            inputs = self.write_genomes(scratch, old + new, 'fresh')
+            fresh, _ = self.run_tool(scratch, 'fresh.zst', inputs, '-k', '21', '-N', '2')
+            self.assertEqual(set(updated), set(fresh))
+            self.assertTrue({160, 180, 190, 240} <= {int(r.split('\t')[0]) for r in updated})
+            self.assertIn('190\t.,.,0,0\t.,.,+,-\t.,.,4,0', updated)
+
+    def test_incremental_all_genomes_splits_old_mum_and_inherits_options(self):
+        rng = random.Random(1536)
+        core = ''.join(rng.choices('ACGT', k=240))
+        old = [[core], [core]]
+        new = [[core[:80], core[70:160], core[150:]]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-update-all-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, old, 'old')
+            state = scratch / 'state'
+            self.run_tool(scratch, 'initial.zst', inputs, '-k', '21', '--forward-only', '--state', str(state))
+            for path in inputs:
+                path.unlink()
+            inputs = self.write_genomes(scratch, new, 'new')
+            rows, _ = self.run_tool(scratch, 'updated.zst', inputs, '--update', str(state))
+            self.assertEqual(set(rows), {'80\t0,0,0\t+,+,+\t0,0,0',
+                                         '90\t70,70,0\t+,+,+\t0,0,1',
+                                         '90\t150,150,0\t+,+,+\t0,0,2'})
+
     def test_long_proto_recovers_internal_fragments_at_contig_breaks(self):
         rng = random.Random(9182)
         core = ''.join(rng.choices('ACGT', k=1000))

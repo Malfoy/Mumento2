@@ -340,6 +340,13 @@ impl<'a, const CONFIG: Config, I: InputData<'a>> FastqParser<'a, CONFIG, I> {
 
     #[inline(always)]
     fn consume_newline(&mut self) {
+        // DNA ends before CR in CRLF input. Move onto the actual LF before
+        // clearing its bit; CR and LF may be in different SIMD blocks.
+        if self.pos_in_block < self.block.len
+            && self.lexer.input.current_block()[self.pos_in_block] == b'\r'
+        {
+            self.increment_pos();
+        }
         self.block.newline &= self.block.newline.wrapping_sub(1);
         self.increment_pos();
         self.line_count += 1;

@@ -1,3 +1,7 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
 
+[env]
+CFLAGS = { value = "-O3 -march=native", force = false }
+CXXFLAGS = { value = "-O3 -march=native", force = false }
+

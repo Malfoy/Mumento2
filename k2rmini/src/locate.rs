@@ -8,7 +8,6 @@ use std::{
 use helicase::{input::*, *};
 use rustc_hash::{FxHashMap, FxHashSet};
 use simd_minimizers::{
-    minimizers,
     packed_seq::{PackedSeqVec, Seq, SeqVec},
     seq_hash::{KmerHasher, NtHasher},
 };
@@ -124,7 +123,9 @@ struct Hit {
 }
 
 mod stream;
-pub use stream::{LocateStats, LocateTimings, locate_mums};
+pub use stream::{
+    LocateStats, LocateTimings, StateInfo, locate_mums, locate_shared_mums, read_state_info,
+};
 
 #[cfg(test)]
 mod tests {

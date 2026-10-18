@@ -8,18 +8,18 @@ use colors::{
 };
 use config::{KEEP_FILES, MEMORY_THRESHOLD_CLEAR_START_OFFSET, MINIMUM_GLOBAL_MEMORY};
 pub use ggcat_logging::MessageLevel;
-use ggcat_logging::{UnrecoverableErrorLogging, info, warn};
-use io::sequences_stream::GenericSequencesStream;
+use ggcat_logging::{info, warn, UnrecoverableErrorLogging};
 use io::sequences_stream::fasta::FastaFileSequencesStream;
+use io::sequences_stream::GenericSequencesStream;
 use parallel_processor::enable_counters_logging;
 use parallel_processor::memory_data_size::MemoryDataSize;
-use parallel_processor::memory_fs::MemoryFs;
 use parallel_processor::memory_fs::allocator::MemoryAllocationLimits;
+use parallel_processor::memory_fs::MemoryFs;
 use parallel_processor::phase_times_monitor::PHASES_TIMES_MONITOR;
 use parking_lot::Mutex;
-use sequence_output::structured_sequences::StructuredSequenceBackendWrapper;
 use sequence_output::structured_sequences::fasta::FastaWriterWrapper;
 use sequence_output::structured_sequences::gfa::{GFAWriterWrapperV1, GFAWriterWrapperV2};
+use sequence_output::structured_sequences::StructuredSequenceBackendWrapper;
 use std::cmp::max;
 use std::fs::create_dir_all;
 use std::ops::Deref;
@@ -31,9 +31,9 @@ pub use crate::utils::HashType;
 pub use config::ColorIndexType;
 pub use io::sequences_reader::{DnaSequence, DnaSequencesFileType};
 pub use io::sequences_stream::{
-    SequenceInfo,
     general::{DynamicSequencesStream, GeneralSequenceBlockData},
     tar::TarSequenceBlock,
+    SequenceInfo,
 };
 pub use querier::ColoredQueryOutputFormat;
 
@@ -80,6 +80,8 @@ pub enum KmerFilter {
     /// Keep a k-mer iff it occurs at least once in every input color.
     /// A color can group several contigs/files into one genome.
     PresentInAllColors,
+    /// Keep k-mers occurring in at least this many distinct input colors.
+    PresentInAtLeastColors(usize),
 }
 
 /// Main config of GGCAT. This config is global and should be passed to GGCATInstance::create
@@ -290,7 +292,14 @@ impl GGCATInstance {
         gfa_output_version: Option<GfaVersion>,
         kmer_filter: KmerFilter,
     ) -> anyhow::Result<PathBuf> {
-        let present_in_all_colors = kmer_filter == KmerFilter::PresentInAllColors;
+        let required_color_count = match kmer_filter {
+            KmerFilter::MinimumMultiplicity => None,
+            KmerFilter::PresentInAllColors => Some(0), // resolved after input color registration
+            KmerFilter::PresentInAtLeastColors(n) => {
+                anyhow::ensure!(n > 0, "minimum color count must be positive");
+                Some(n)
+            }
+        };
         anyhow::ensure!(kmer_length >= 3, "k-mer length must be at least 3");
         let minimizer_length =
             minimizer_length.unwrap_or_else(|| ::utils::compute_best_m(kmer_length));
@@ -298,10 +307,10 @@ impl GGCATInstance {
             minimizer_length > 0 && minimizer_length <= kmer_length - 2,
             "minimizer length must be between 1 and k - 2"
         );
-        let colors = colors || present_in_all_colors;
+        let colors = colors || required_color_count.is_some();
         // Native filtering checks distinct genome presence after merging;
         // k-mer multiplicity never excludes repeats from proto-MUMs.
-        let min_multiplicity = if present_in_all_colors {
+        let min_multiplicity = if required_color_count.is_some() {
             1
         } else {
             min_multiplicity
@@ -360,7 +369,7 @@ impl GGCATInstance {
             temp_dir.clone(),
             threads_count,
             min_multiplicity,
-            present_in_all_colors,
+            required_color_count,
             *debug::BUCKETS_COUNT_LOG_FORCE.lock(),
             self.0.intermediate_compression_level,
             extra_elab == ExtraElaboration::UnitigLinks,
@@ -457,9 +466,9 @@ impl GGCATInstance {
         // The input colormap
         input_colormap: impl AsRef<Path>,
     ) -> anyhow::Result<impl Iterator<Item = String>> {
-        use colors::DefaultColorsSerializer;
         use colors::colors_manager::ColorMapReader;
         use colors::storage::deserializer::ColorsDeserializer;
+        use colors::DefaultColorsSerializer;
 
         let colors_deserializer =
             ColorsDeserializer::<DefaultColorsSerializer>::new(input_colormap, true)?;

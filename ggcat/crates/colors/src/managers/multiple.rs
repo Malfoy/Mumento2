@@ -1,6 +1,6 @@
-use crate::DefaultColorsSerializer;
-use crate::colors_manager::{ColorsMergeManager, has_exact_color_count};
+use crate::colors_manager::{has_minimum_color_count, ColorsMergeManager};
 use crate::colors_memmap_writer::ColorsMemMapWriter;
+use crate::DefaultColorsSerializer;
 use atoi::{FromRadix10, FromRadix16};
 use bstr::ByteSlice;
 use byteorder::ReadBytesExt;
@@ -13,7 +13,7 @@ use io::concurrent::temp_reads::extra_data::{
     SequenceExtraData, SequenceExtraDataTempBufferManagement, TempBuffer,
 };
 use io::ident_writer::IdentSequenceWriter;
-use io::varint::{VARINT_MAX_SIZE, decode_varint, encode_varint};
+use io::varint::{decode_varint, encode_varint, VARINT_MAX_SIZE};
 use itertools::Itertools;
 use nightly_quirks::slice_partition_dedup::SlicePartitionDedup;
 use std::collections::VecDeque;
@@ -99,7 +99,7 @@ impl ColorsMergeManager for MultipleColorsManager {
     fn prepare_color_presence_filter(data: &mut Self, required_colors: usize) {
         for entry in data.colors_list.iter_mut() {
             if entry.reached_multiplicity()
-                && !has_exact_color_count(
+                && !has_minimum_color_count(
                     data.colors_buffer.slice_vec_mut(&mut entry.colors),
                     required_colors,
                 )

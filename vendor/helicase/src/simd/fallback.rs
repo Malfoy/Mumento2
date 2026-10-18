@@ -19,7 +19,7 @@ pub fn extract_fasta_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastaBitmask {
     for (i, &x) in buf.iter().enumerate().take(64) {
         let bit = 1 << i;
         open_bracket |= if x == b'>' { bit } else { 0 };
-        line_feeds |= if x == b'\n' { bit } else { 0 };
+        line_feeds |= if x == b'\n' || x == b'\r' { bit } else { 0 };
 
         if flag_is_set(CONFIG, COMPUTE_DNA_COLUMNAR) {
             high_bit |= ((x & 0b100) as u64) << i.wrapping_sub(2);
@@ -63,6 +63,7 @@ pub fn extract_fasta_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastaBitmask {
 #[inline(always)]
 pub fn extract_fastq_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastqBitmask {
     let mut line_feeds = 0;
+    let mut carriage_returns = 0;
     let mut is_dna = !0;
     let mut two_bits = 0;
     let mut high_bit = 0;
@@ -74,6 +75,7 @@ pub fn extract_fastq_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastqBitmask {
     for (i, &x) in buf.iter().enumerate().take(64) {
         let bit = 1 << i;
         line_feeds |= if x == b'\n' { bit } else { 0 };
+        carriage_returns |= if x == b'\r' { bit } else { 0 };
 
         if flag_is_set(CONFIG, COMPUTE_DNA_COLUMNAR) {
             high_bit |= ((x & 0b100) as u64) << i.wrapping_sub(2);
@@ -102,6 +104,7 @@ pub fn extract_fastq_bitmask<const CONFIG: Config>(buf: &[u8]) -> FastqBitmask {
         }
     }
 
+    is_dna &= !carriage_returns;
     FastqBitmask {
         line_feeds,
         is_dna,

@@ -105,7 +105,10 @@ pub trait ColorsParser: Sized {
         + Sync
         + Send
         + 'static;
-    type MinimizerBucketingSeqColorDataType: for<'a> MinimizerBucketingSeqColorDataIterable<'a, Self::SingleKmerColorDataType>;
+    type MinimizerBucketingSeqColorDataType: for<'a> MinimizerBucketingSeqColorDataIterable<
+        'a,
+        Self::SingleKmerColorDataType,
+    >;
     type MinimizerBucketingMultipleSeqColorDataType: SequenceExtraDataCombiner<SingleDataType = Self::MinimizerBucketingSeqColorDataType>
         + for<'a> MinimizerBucketingSeqColorDataIterable<'a, &'a [Self::SingleKmerColorDataType]>;
 }
@@ -277,9 +280,23 @@ pub trait ColorsMergeManager: Sized {
     );
 }
 
-/// Require presence in every input color, independently of copy count.
+/// Require presence in at least the requested number of colors, independently of copy count.
 pub fn present_in_all_colors<T: Ord>(colors: &mut [T], required_colors: Option<usize>) -> bool {
-    required_colors.is_none_or(|required| has_exact_color_count(colors, required))
+    required_colors.is_none_or(|required| has_minimum_color_count(colors, required))
+}
+
+pub fn has_minimum_color_count<T: Ord>(colors: &mut [T], required: usize) -> bool {
+    if colors.len() < required {
+        return false;
+    }
+    colors.sort_unstable();
+    colors
+        .iter()
+        .enumerate()
+        .filter(|(i, color)| *i == 0 || *color != &colors[*i - 1])
+        .take(required)
+        .count()
+        == required
 }
 
 pub fn has_exact_color_count<T: Ord>(colors: &mut [T], required: usize) -> bool {
