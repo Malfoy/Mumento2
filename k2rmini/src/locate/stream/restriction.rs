@@ -7,6 +7,7 @@ use sshash_lib::{Kmer, KmerBits};
 
 const NONE: u32 = u32::MAX;
 const NO_LOCATION: u64 = u64::MAX;
+const SINGLETON_EXTRA: usize = 64;
 const LEAF: usize = 1usize << (usize::BITS - 1);
 
 struct ContextGroup {
@@ -113,6 +114,8 @@ pub(super) struct RestrictionIndex {
     // coverage. Copies may disappear; each new mapping remains a stopping point.
     reference_repeats: Vec<u64>,
     reference_repeats_reverse: Vec<u64>,
+    context_singletons_forward: Vec<u64>,
+    context_singletons_reverse: Vec<u64>,
     groups: Vec<RepeatedPosition>,
     pools: Vec<Vec<ContextGroup>>,
     leaf_occurrences: Vec<LeafOccurrence>,
@@ -534,13 +537,47 @@ impl RestrictionIndex {
     }
 
     fn unique_alignment_span(&self, physical: u64, reverse: bool, extension: u64) -> usize {
-        let position = physical as usize;
-        let maximum = extension as usize + 1;
         let stops = if reverse {
             &self.reference_repeats_reverse
         } else {
             &self.reference_repeats
         };
+        Self::stop_span(stops, physical, reverse, extension)
+    }
+
+    // Every removed stop has an original singleton leaf requiring at most
+    // K+64 exact right-context bases. Only use it inside an already verified
+    // reference alignment, retaining 64 bases beyond the skipped seed.
+    fn known_alignment_span(&self, physical: u64, reverse: bool, extension: u64) -> usize {
+        if extension <= SINGLETON_EXTRA as u64 {
+            return self.unique_alignment_span(physical, reverse, extension);
+        }
+        let stops = if reverse {
+            &self.context_singletons_reverse
+        } else {
+            &self.context_singletons_forward
+        };
+        if stops.is_empty() {
+            return self.unique_alignment_span(physical, reverse, extension);
+        }
+        let proven = extension - SINGLETON_EXTRA as u64;
+        let span = Self::stop_span(stops, physical, reverse, proven);
+        if span as u64 <= proven {
+            return span;
+        }
+        // The relaxed scan checked every seed through this endpoint. Beyond
+        // it the 64-base context reserve is exhausted, so use original stops.
+        let boundary = if reverse {
+            physical - proven
+        } else {
+            physical + proven
+        };
+        proven as usize + self.unique_alignment_span(boundary, reverse, SINGLETON_EXTRA as u64)
+    }
+
+    fn stop_span(stops: &[u64], physical: u64, reverse: bool, extension: u64) -> usize {
+        let position = physical as usize;
+        let maximum = extension as usize + 1;
         if reverse {
             let lower = position + 1 - maximum;
             let mut upper = position;
@@ -572,6 +609,77 @@ impl RestrictionIndex {
             }
         }
         maximum
+    }
+
+    fn build_context_singleton_stops(
+        positions: &[u64],
+        repeated: &[u64],
+        copies: &[(usize, u64)],
+        groups: &[RepeatedPosition],
+        pools: &[Vec<ContextGroup>],
+        records: &[LeafOccurrence],
+        forward: &[u64],
+        reverse: &[u64],
+        k: usize,
+    ) -> (Vec<u64>, Vec<u64>) {
+        let mut seen = vec![0u64; forward.len()];
+        let mut blocked = seen.clone();
+        let mut observe = |location: u64| {
+            let physical = (location >> 1) as usize;
+            let word = physical / 64;
+            if word >= seen.len() {
+                return;
+            }
+            let mask = 1u64 << (physical % 64);
+            blocked[word] |= seen[word] & mask;
+            seen[word] |= mask;
+        };
+        // Multiple proto/strand entries at one physical seed cannot justify
+        // this shortcut. Include unique and repeated indexed positions.
+        for (bit, &location) in positions.iter().enumerate() {
+            if location != NO_LOCATION && repeated[bit / 64] & (1 << (bit % 64)) == 0 {
+                observe(location);
+            }
+        }
+        for &(_, location) in copies {
+            observe(location);
+        }
+        drop(observe);
+        let mut result = [forward.to_vec(), reverse.to_vec()];
+        let mut removed = [0usize; 2];
+        for group in groups {
+            for record in &records[group.leaves.clone()] {
+                let physical = (record.location >> 1) as usize;
+                let word = physical / 64;
+                let mask = 1u64 << (physical % 64);
+                if blocked.get(word).is_none_or(|&bits| bits & mask != 0) {
+                    continue;
+                }
+                for reverse in [false, true] {
+                    let direction = (record.location & 1 != 0) != reverse;
+                    let node = record.leaves[usize::from(direction)];
+                    if node == NONE {
+                        continue;
+                    }
+                    let leaf = &pools[group.pool][node as usize];
+                    if leaf.depth & LEAF != 0
+                        && (leaf.depth & !LEAF) <= k + SINGLETON_EXTRA
+                        && leaf.sample == record.location
+                        && leaf.second_location() == NO_LOCATION
+                    {
+                        let flags = &mut result[usize::from(reverse)];
+                        removed[usize::from(reverse)] += usize::from(flags[word] & mask != 0);
+                        flags[word] &= !mask;
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "[context_singleton_stops]\t{} forward\t{} reverse stops covered by exact <=k+64 singleton leaves",
+            removed[0], removed[1]
+        );
+        let [forward, reverse] = result;
+        (forward, reverse)
     }
 
     // A reference fragment maps a proto interval to one physical occurrence.
@@ -752,6 +860,18 @@ impl RestrictionIndex {
             }
             pools.push(nodes);
         }
+        let (context_singletons_forward, context_singletons_reverse) =
+            Self::build_context_singleton_stops(
+                &positions,
+                &repeated,
+                &copies,
+                &groups,
+                &pools,
+                &leaf_occurrences,
+                &reference_repeats,
+                &reference_repeats_reverse,
+                index.options.k,
+            );
         let leaf_rank = LeafRank::build(&leaf_occurrences);
         eprintln!(
             "[context_leaf_rank]\t{} leaf occurrences\t{} rank bytes",
@@ -773,6 +893,8 @@ impl RestrictionIndex {
             boundaries,
             reference_repeats,
             reference_repeats_reverse,
+            context_singletons_forward,
+            context_singletons_reverse,
             groups,
             pools,
             leaf_occurrences,
@@ -1085,7 +1207,7 @@ impl RestrictionIndex {
                                 entry.end - physical - K as u64
                             };
                             advance = advance
-                                .max(self.unique_alignment_span(physical, reverse, extension));
+                                .max(self.known_alignment_span(physical, reverse, extension));
                         }
                         continue;
                     }
@@ -1116,7 +1238,7 @@ impl RestrictionIndex {
                     );
                     witnesses[usize::from(reverse)] = Some(recent.entries[slot]);
                     if present.is_none() {
-                        advance = advance.max(self.unique_alignment_span(
+                        advance = advance.max(self.known_alignment_span(
                             physical,
                             reverse,
                             if reverse { left } else { right },
@@ -1483,6 +1605,8 @@ mod tests {
             let mut restriction = RestrictionIndex::build(&index, &reference)?;
             let forward = restriction.reference_repeats.clone();
             let reverse_stops = restriction.reference_repeats_reverse.clone();
+            let singleton_forward = restriction.context_singletons_forward.clone();
+            let singleton_reverse = restriction.context_singletons_reverse.clone();
             let queries = [
                 core.clone(),
                 reverse(&core),
@@ -1508,11 +1632,19 @@ mod tests {
                     }
                     restriction.reference_repeats.clone_from(&forward);
                     restriction
+                        .context_singletons_forward
+                        .clone_from(&singleton_forward);
+                    restriction
+                        .context_singletons_reverse
+                        .clone_from(&singleton_reverse);
+                    restriction
                         .reference_repeats_reverse
                         .clone_from(&reverse_stops);
                     if exhaustive {
                         restriction.reference_repeats.fill(u64::MAX);
                         restriction.reference_repeats_reverse.fill(u64::MAX);
+                        restriction.context_singletons_forward.fill(u64::MAX);
+                        restriction.context_singletons_reverse.fill(u64::MAX);
                     }
                     let mut sink = ContextSink::new(3, &reference, k);
                     let mut stats = ScanStats::default();
@@ -1704,6 +1836,8 @@ mod tests {
                 repeated: Vec::new(),
                 boundaries: Vec::new(),
                 reference_repeats_reverse: reverse_words,
+                context_singletons_forward: Vec::new(),
+                context_singletons_reverse: Vec::new(),
                 reference_repeats: words,
                 groups: Vec::new(),
                 pools: Vec::new(),
@@ -1738,6 +1872,160 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn singleton_context_reserve_is_preserved_across_word_boundaries() {
+        let count = 257usize;
+        let ordinary = vec![u64::MAX; count.div_ceil(64)];
+        let mut relaxed = ordinary.clone();
+        for p in 0..count {
+            if p % 31 != 0 {
+                relaxed[p / 64] &= !(1u64 << (p % 64));
+            }
+        }
+        let mut index = RestrictionIndex {
+            positions: Vec::new(),
+            repeated: Vec::new(),
+            boundaries: Vec::new(),
+            reference_repeats: ordinary.clone(),
+            reference_repeats_reverse: ordinary,
+            context_singletons_forward: relaxed.clone(),
+            context_singletons_reverse: relaxed.clone(),
+            groups: Vec::new(),
+            pools: Vec::new(),
+            leaf_occurrences: Vec::new(),
+            leaf_rank: None,
+        };
+        for position in 0..count {
+            for reverse in [false, true] {
+                let limit = if reverse {
+                    position + 1
+                } else {
+                    count - position
+                };
+                for maximum in 1..=limit {
+                    let extension = maximum - 1;
+                    let original = 1;
+                    let expected = if extension <= SINGLETON_EXTRA {
+                        original
+                    } else {
+                        let safe = extension - SINGLETON_EXTRA + 1;
+                        (1..safe)
+                            .find(|&step| {
+                                let p = if reverse {
+                                    position - step
+                                } else {
+                                    position + step
+                                };
+                                relaxed[p / 64] & (1u64 << (p % 64)) != 0
+                            })
+                            .unwrap_or(safe)
+                            .max(original)
+                    };
+                    assert_eq!(
+                        index.known_alignment_span(position as u64, reverse, extension as u64),
+                        expected,
+                        "position={position} reverse={reverse} extension={extension}"
+                    );
+                    if expected > 1 {
+                        assert!(expected - 1 + SINGLETON_EXTRA <= extension);
+                    }
+                }
+            }
+        }
+        // With no remaining ordinary stops, the suffix fallback must cross
+        // the reserve boundary and preserve the complete verified alignment.
+        index.reference_repeats.fill(0);
+        index.reference_repeats_reverse.fill(0);
+        index.context_singletons_forward.fill(0);
+        index.context_singletons_reverse.fill(0);
+        for position in [0usize, 63, 64, 65, 127, 128, 256] {
+            for reverse in [false, true] {
+                let limit = if reverse {
+                    position + 1
+                } else {
+                    count - position
+                };
+                for maximum in 1..=limit {
+                    assert_eq!(
+                        index.known_alignment_span(position as u64, reverse, (maximum - 1) as u64),
+                        maximum
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn singleton_context_stops_require_full_keys_bounded_depth_and_no_conflicting_mapping() {
+        let k = 7;
+        let locations = [20u64, 40, 60, 80, 101, 120, 140, 160];
+        let mut nodes = Vec::new();
+        let mut records = Vec::new();
+        for (id, &location) in locations.iter().enumerate() {
+            let first = nodes.len() as u32;
+            let depth = if id == 1 {
+                k + SINGLETON_EXTRA + 1
+            } else {
+                k + SINGLETON_EXTRA
+            };
+            let sample = if id == 2 { location + 2 } else { location };
+            let second = if id == 3 { location + 200 } else { NO_LOCATION };
+            nodes.push(ContextGroup::leaf(depth, sample, second));
+            nodes.push(ContextGroup::leaf(k, location, NO_LOCATION));
+            records.push(LeafOccurrence {
+                location,
+                leaves: if id == 6 {
+                    [NONE, NONE]
+                } else {
+                    [first, first + 1]
+                },
+            });
+        }
+        // Position60 has a second repeated mapping. Position80 has a unique
+        // mapping in addition to its repeated occurrence. Both remain blocked.
+        let mut copies: Vec<_> = locations.iter().enumerate().map(|(i, &l)| (i, l)).collect();
+        copies.push((100, 121));
+        let mut positions = vec![0; locations.len() + 1];
+        positions[locations.len()] = 160;
+        let repeated = vec![(1u64 << locations.len()) - 1];
+        let groups = vec![RepeatedPosition {
+            first: 20,
+            second: NO_LOCATION,
+            roots: [NONE; 2],
+            pool: 0,
+            leaves: 0..records.len(),
+        }];
+        let original = vec![u64::MAX; 2];
+        let (forward, reverse) = RestrictionIndex::build_context_singleton_stops(
+            &positions,
+            &repeated,
+            &copies,
+            &groups,
+            &[nodes],
+            &records,
+            &original,
+            &original,
+            k,
+        );
+        let set =
+            |words: &[u64], physical: usize| words[physical / 64] & (1u64 << (physical % 64)) != 0;
+        for (id, &location) in locations.iter().enumerate() {
+            for backwards in [false, true] {
+                let direction = (location & 1 != 0) != backwards;
+                let expected_blocked =
+                    id == 5 || id == 6 || id == 7 || (!direction && [1, 2, 3].contains(&id));
+                assert_eq!(
+                    set(
+                        if backwards { &reverse } else { &forward },
+                        (location >> 1) as usize
+                    ),
+                    expected_blocked,
+                    "id={id} backwards={backwards}"
+                );
             }
         }
     }
@@ -1788,10 +2076,26 @@ mod tests {
             fasta.extend(&core[200..700]);
             fasta.extend(b"\n>reverse-repeat\n");
             fasta.extend(reverse(&core[800..1300]));
+            for variant in 0..2 {
+                let mut copy = core[200..1400].to_vec();
+                for p in (61 + variant * 17..copy.len()).step_by(149) {
+                    copy[p] = if copy[p] == b'A' { b'C' } else { b'A' };
+                }
+                fasta.extend(format!("\n>context-copy-{variant}\n").bytes());
+                fasta.extend(copy);
+            }
             fasta.push(b'\n');
             std::fs::write(&path, fasta)?;
             let reference = read_reference(&index, &path)?;
             let mut restriction = RestrictionIndex::build(&index, &reference)?;
+            assert!(
+                restriction
+                    .reference_repeats
+                    .iter()
+                    .zip(&restriction.context_singletons_forward)
+                    .any(|(&old, &new)| old & !new != 0),
+                "exercise context singleton skips k={k}"
+            );
             if k >= 31 {
                 let is_set = |words: &[u64], p: usize| words[p / 64] & (1 << (p % 64)) != 0;
                 assert!(is_set(&restriction.reference_repeats, 200));
@@ -1812,6 +2116,8 @@ mod tests {
                 let mut rows = Vec::new();
                 let repeats = restriction.reference_repeats.clone();
                 let reverse_repeats = restriction.reference_repeats_reverse.clone();
+                let singleton_forward = restriction.context_singletons_forward.clone();
+                let singleton_reverse = restriction.context_singletons_reverse.clone();
                 let saved_leaves = restriction
                     .groups
                     .iter()
@@ -1826,6 +2132,8 @@ mod tests {
                     if exhaustive {
                         restriction.reference_repeats.fill(u64::MAX);
                         restriction.reference_repeats_reverse.fill(u64::MAX);
+                        restriction.context_singletons_forward.fill(u64::MAX);
+                        restriction.context_singletons_reverse.fill(u64::MAX);
                     }
                     let mut sink = ContextSink::new(3, &reference, k);
                     let mut stats = ScanStats::default();
@@ -1850,6 +2158,8 @@ mod tests {
                 }
                 restriction.reference_repeats = repeats;
                 restriction.reference_repeats_reverse = reverse_repeats;
+                restriction.context_singletons_forward = singleton_forward;
+                restriction.context_singletons_reverse = singleton_reverse;
                 assert_eq!(rows[0], rows[1], "k={k}, query length={}", sequence.len());
             }
             assert!(
@@ -1911,6 +2221,8 @@ mod tests {
                 boundaries,
                 reference_repeats: Vec::new(),
                 reference_repeats_reverse: Vec::new(),
+                context_singletons_forward: Vec::new(),
+                context_singletons_reverse: Vec::new(),
                 groups: Vec::new(),
                 pools: Vec::new(),
                 leaf_occurrences: Vec::new(),
@@ -1981,6 +2293,8 @@ mod tests {
                 boundaries: vec![1],
                 reference_repeats: Vec::new(),
                 reference_repeats_reverse: Vec::new(),
+                context_singletons_forward: Vec::new(),
+                context_singletons_reverse: Vec::new(),
                 groups: vec![RepeatedPosition {
                     first: locations[0],
                     second: locations[1],
@@ -2022,6 +2336,8 @@ mod tests {
             boundaries: vec![1],
             reference_repeats: Vec::new(),
             reference_repeats_reverse: Vec::new(),
+            context_singletons_forward: Vec::new(),
+            context_singletons_reverse: Vec::new(),
             groups: vec![RepeatedPosition {
                 first: locations[0],
                 second: locations[1],
@@ -2180,6 +2496,8 @@ mod tests {
                     boundaries: Vec::new(),
                     reference_repeats: Vec::new(),
                     reference_repeats_reverse: Vec::new(),
+                    context_singletons_forward: Vec::new(),
+                    context_singletons_reverse: Vec::new(),
                     groups,
                     pools: vec![nodes],
                     leaf_rank: LeafRank::build(&records),
