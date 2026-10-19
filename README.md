@@ -12,29 +12,31 @@ Native CPU optimization, optimization level 3, fat LTO and a single code-generat
 
 Inputs may be plain or compressed FASTA/FASTQ, with each file representing one genome and each record a separate contig. Large collections can use a file list. Output is a compressed TSV containing match lengths, zero-based forward-strand starts, strands and contig IDs, plus contig metadata. Phase timings expose graph construction, indexing, scanning/extension, reduction and output costs.
 
-The test suite contains **233 library tests, 8 driver tests and 205 end-to-end tests**, including independent small-input oracles, internal-fragment recovery, reverse strands, repeats, thresholds and incremental updates. See [test coverage](tests/README.md).
+The test suite contains **235 library tests, 8 driver tests and 205 end-to-end tests**, including independent small-input oracles, internal-fragment recovery, reverse strands, repeats, thresholds and incremental updates. See [test coverage](tests/README.md).
 
 Human measurements use real HPRC **chromosome 19 haplotypes**, following the chromosome scaling experiment in the [Mumemto paper](https://doi.org/10.1186/s13059-025-03644-0). Inputs average approximately 61 Mb; uniqueness is checked within chromosome 19. The 512-input collection represents 276 individuals, preserving the Release 2 prefix and adding public HPRC R3 assemblies. Whole-human-genome performance has not been measured. See the [input provenance and selection](docs/human-chr19-dataset-20261018.md).
 
 The latest measured configuration uses the same frozen **human-PGO executable** at every size, k = 63, minimum MUM length = 63 bp, both strands and strict presence in every input. Rust uses 32 threads, up to 16 graph-seed genomes and the system allocator, with no allocator preload. Each size has one measured Rust run; all saved C++ measurements and the completed 512-input Rust run are reused.
 
+GGCAT uses graph minimizer length 10 and 256 buckets. The SSHash dictionary uses minimizer length 31 at k = 63.
+
 | Haplotypes | C++ wall (s) | Rust wall (s) | C++ CPU (s) | Rust CPU (s) | C++ RAM (GiB) | Rust RAM (GiB) |
 |---:|---:|---:|---:|---:|---:|---:|
-| 2 | 103.82 | 10.70 (9.70×) | 103.68 | 51.75 (2.00×) | 2.58 | 1.65 (1.57×) |
-| 4 | 125.58 | 10.55 (11.91×) | 372.91 | 57.53 (6.48×) | 8.32 | 1.93 (4.31×) |
-| 8 | 147.97 | 10.96 (13.50×) | 1,018.21 | 76.86 (13.25×) | 19.34 | 2.52 (7.68×) |
-| 16 | 221.77 | 12.65 (17.53×) | 3,022.01 | 119.88 (25.21×) | 41.48 | 3.81 (10.90×) |
-| 32 | 454.91 | 13.39 (33.97×) | 6,393.35 | 183.11 (34.92×) | 44.24 | 6.47 (6.83×) |
-| 64 | 868.70 | 17.81 (48.77×) | 13,076.85 | 293.42 (44.57×) | 44.63 | 6.85 (6.51×) |
-| 128 | 1,737.04 | 25.85 (67.18×) | 26,275.72 | 526.16 (49.94×) | 45.84 | 7.07 (6.48×) |
-| 256 | 3,464.91 | 42.67 (81.19×) | 52,896.79 | 1,018.13 (51.95×) | 46.45 | 7.18 (6.47×) |
-| 512 | 6,931.30 | 77.71 (89.20×) | 106,287.83 | 2,055.01 (51.72×) | 46.23 | 7.25 (6.37×) |
+| 2 | 103.82 | 10.40 (9.98×) | 103.68 | 50.39 (2.06×) | 2.58 | 1.68 (1.54×) |
+| 4 | 125.58 | 10.48 (11.99×) | 372.91 | 57.12 (6.53×) | 8.32 | 1.94 (4.28×) |
+| 8 | 147.97 | 11.04 (13.40×) | 1,018.21 | 75.24 (13.53×) | 19.34 | 2.61 (7.42×) |
+| 16 | 221.77 | 12.35 (17.95×) | 3,022.01 | 116.21 (26.00×) | 41.48 | 3.87 (10.72×) |
+| 32 | 454.91 | 13.25 (34.32×) | 6,393.35 | 173.85 (36.78×) | 44.24 | 6.58 (6.72×) |
+| 64 | 868.70 | 16.90 (51.39×) | 13,076.85 | 267.74 (48.84×) | 44.63 | 6.88 (6.48×) |
+| 128 | 1,737.04 | 23.99 (72.40×) | 26,275.72 | 478.90 (54.87×) | 45.84 | 7.05 (6.50×) |
+| 256 | 3,464.91 | 38.72 (89.48×) | 52,896.79 | 902.90 (58.59×) | 46.45 | 7.24 (6.42×) |
+| 512 | 6,931.30 | 70.84 (97.85×) | 106,287.83 | 1,838.71 (57.81×) | 46.23 | 7.24 (6.38×) |
 
-Parentheses give C++ divided by Rust: factors above one mean Rust uses less wall time, CPU time or RAM. These are single observations. The fastest observed 512-input configuration takes **77.71 seconds**, versus 6,931.30 seconds for C++: **89.20× faster**. With identical seed-eight settings, the same executable measured **78.91 seconds and 7.29 GiB** without preloading, versus **77.94 seconds and 10.29 GiB** with mimalloc. These are single observations.
+Parentheses give C++ divided by Rust: factors above one mean Rust uses less wall time, CPU time or RAM. These are single observations. The fastest observed 512-input configuration takes **70.84 seconds**, versus 6,931.30 seconds for C++: **97.85× faster**.
 
 Every output at all nine sizes matches C++ exactly, including lengths, coordinates and strands; the 512-input output contains **254,892 MUMs**. Sequence, contig-boundary, joint maximality and physical uniqueness audits are inherited only through exact full row-set equality with independently validated C++ output.
 
-For stateless all-genome searches, graph construction uses up to 16 seed genomes by default. Every qualifying MUM occurs in that prefix; validation still scans every input genome. Threshold searches and reusable states retain full candidate coverage. The native Rust SSHash proto-MUM index incorporates PTRHash/SIMD acceleration from REINDEER. Directional stop maps allow exact alignments to cross proto boundaries when every later oriented occurrence is already covered. Copies may disappear; new mappings remain stopping points. Unresolved contexts compare DNA only within these proven bounds. The compact scanner uses a bounded exact alignment cache; collisions cause recomputation, and duplicate evidence is removed before reduction. SSHash uses m = 31 at k = 63 and m = min(23, k−1) otherwise. SIMD minimizer batches use 16 KiB to improve per-worker cache locality; exact point-query differential tests cover batch boundaries, jumps, resets and absent-window skips. Already verified alignments resolve repeated-seed context leaves through exact occurrence keys and complete context-depth coverage; every failed proof retains the original DNA-checked tree lookup. Only occurrences represented by actual context leaves are eligible. Other retained optimizations bound repeat evidence to three distinct oriented mappings per genome, share packed DNA buffers between the scanner and SSHash, use 32-byte repeat-context nodes and exact alignment caches, preserve dictionary-only bucket information at query jumps and skip absent-minimizer windows.
+For stateless all-genome searches, graph construction uses up to 16 seed genomes by default. Every qualifying MUM occurs in that prefix; validation still scans every input genome. Threshold searches and reusable states retain full candidate coverage. The native Rust SSHash proto-MUM index incorporates PTRHash/SIMD acceleration from REINDEER. Directional stop maps allow exact alignments to cross proto boundaries when every later oriented occurrence is already covered. Copies may disappear; new mappings remain stopping points. Unresolved contexts compare DNA only within these proven bounds. The compact scanner uses a bounded exact alignment cache; collisions cause recomputation, and duplicate evidence is removed before reduction. SSHash uses m = 31 at k = 63 and m = min(23, k−1) otherwise. SIMD minimizer batches use 16 KiB to improve per-worker cache locality; exact point-query differential tests cover batch boundaries, jumps, resets and absent-window skips. Already verified alignments resolve repeated-seed context leaves through exact occurrence keys and complete context-depth coverage; every failed proof retains the original DNA-checked tree lookup. Only occurrences represented by actual context leaves are eligible. A bounded bitmap rank directory finds their original records without binary searches, while checking the full position key and group membership. Sparse or large coordinate spaces retain the original search. Other retained optimizations bound repeat evidence to three distinct oriented mappings per genome, share packed DNA buffers between the scanner and SSHash, use 32-byte repeat-context nodes and exact alignment caches, preserve dictionary-only bucket information at query jumps and skip absent-minimizer windows.
 
 Rust requests 32 native threads. Saved C++ runs used 1, 3, 7 and 15 partition workers at 2, 4, 8 and 16 inputs, respectively; runs from 32 inputs used 16 workers, including merging, constrained by the 48 GiB memory cap. These measurements used a 32-logical-CPU Intel i9-13950HX. CPU is summed user plus system time, including children. Timing includes graph construction, indexing, scanning, reduction and output; downloads, builds, staging and correctness audits are excluded. Single observations are not statistical performance estimates.
 
