@@ -18,21 +18,21 @@ Human measurements use real HPRC **chromosome 19 haplotypes**, following the chr
 
 The latest measured configuration uses the same frozen **human-PGO executable** at every size, k = 63, minimum MUM length = 63 bp, both strands and strict presence in every input. Rust uses 32 threads, up to 16 graph-seed genomes and the system allocator, with no allocator preload. Each size has one measured Rust run; all saved C++ measurements and the completed 512-input Rust run are reused.
 
-GGCAT uses graph minimizer length 10 and 256 buckets. The SSHash dictionary uses minimizer length 31 at k = 63.
+GGCAT uses graph minimizer length 14 and 256 buckets. The SSHash dictionary uses minimizer length 31 at k = 63.
 
 | Haplotypes | C++ wall (s) | Rust wall (s) | C++ CPU (s) | Rust CPU (s) | C++ RAM (GiB) | Rust RAM (GiB) |
 |---:|---:|---:|---:|---:|---:|---:|
-| 2 | 103.82 | 10.40 (9.98×) | 103.68 | 50.39 (2.06×) | 2.58 | 1.68 (1.54×) |
-| 4 | 125.58 | 10.48 (11.99×) | 372.91 | 57.12 (6.53×) | 8.32 | 1.94 (4.28×) |
-| 8 | 147.97 | 11.04 (13.40×) | 1,018.21 | 75.24 (13.53×) | 19.34 | 2.61 (7.42×) |
-| 16 | 221.77 | 12.35 (17.95×) | 3,022.01 | 116.21 (26.00×) | 41.48 | 3.87 (10.72×) |
-| 32 | 454.91 | 13.25 (34.32×) | 6,393.35 | 173.85 (36.78×) | 44.24 | 6.58 (6.72×) |
-| 64 | 868.70 | 16.90 (51.39×) | 13,076.85 | 267.74 (48.84×) | 44.63 | 6.88 (6.48×) |
-| 128 | 1,737.04 | 23.99 (72.40×) | 26,275.72 | 478.90 (54.87×) | 45.84 | 7.05 (6.50×) |
-| 256 | 3,464.91 | 38.72 (89.48×) | 52,896.79 | 902.90 (58.59×) | 46.45 | 7.24 (6.42×) |
-| 512 | 6,931.30 | 70.84 (97.85×) | 106,287.83 | 1,838.71 (57.81×) | 46.23 | 7.24 (6.38×) |
+| 2 | 103.82 | 10.19 (10.18×) | 103.68 | 47.81 (2.17×) | 2.58 | 1.67 (1.55×) |
+| 4 | 125.58 | 10.08 (12.46×) | 372.91 | 54.95 (6.79×) | 8.32 | 1.96 (4.25×) |
+| 8 | 147.97 | 10.45 (14.16×) | 1,018.21 | 70.57 (14.43×) | 19.34 | 2.58 (7.49×) |
+| 16 | 221.77 | 11.95 (18.56×) | 3,022.01 | 113.07 (26.73×) | 41.48 | 3.85 (10.78×) |
+| 32 | 454.91 | 12.74 (35.70×) | 6,393.35 | 168.30 (37.99×) | 44.24 | 6.60 (6.71×) |
+| 64 | 868.70 | 16.88 (51.46×) | 13,076.85 | 269.91 (48.45×) | 44.63 | 6.95 (6.42×) |
+| 128 | 1,737.04 | 24.15 (71.93×) | 26,275.72 | 473.44 (55.50×) | 45.84 | 7.09 (6.46×) |
+| 256 | 3,464.91 | 38.71 (89.51×) | 52,896.79 | 907.57 (58.28×) | 46.45 | 7.20 (6.45×) |
+| 512 | 6,931.30 | 69.22 (100.14×) | 106,287.83 | 1,818.70 (58.44×) | 46.23 | 7.27 (6.35×) |
 
-Parentheses give C++ divided by Rust: factors above one mean Rust uses less wall time, CPU time or RAM. These are single observations. The fastest observed 512-input configuration takes **70.84 seconds**, versus 6,931.30 seconds for C++: **97.85× faster**.
+Parentheses give C++ divided by Rust: factors above one mean Rust uses less wall time, CPU time or RAM. These are single observations. The fastest observed 512-input configuration takes **69.22 seconds**, versus 6,931.30 seconds for C++: **100.14× faster**.
 
 Every output at all nine sizes matches C++ exactly, including lengths, coordinates and strands; the 512-input output contains **254,892 MUMs**. Sequence, contig-boundary, joint maximality and physical uniqueness audits are inherited only through exact full row-set equality with independently validated C++ output.
 
