@@ -82,7 +82,7 @@ where
     #[inline(never)]
     fn refill_minimizers(&mut self, position: usize, run_end: usize) {
         self.begin = position;
-        let end = run_end.min(position + 128 * 1024 + K - 1);
+        let end = run_end.min(position + 16 * 1024 + K - 1);
         self.minimizers.compute_packed(
             self.packed.as_slice().slice(position..end),
             K,
