@@ -105,6 +105,99 @@ impl LeafRank {
         Some(self.records[rank as usize] as usize)
     }
 }
+#[derive(Clone, Copy, Debug)]
+struct ReferenceSeed {
+    pattern: u32,
+    offset: u32,
+    reverse: bool,
+}
+
+// Query-only reference coordinate directory. Every stored seed comes from an
+// original exact reference fragment; SSHash remains the fallback dictionary.
+struct ReferenceSeeds {
+    entries: Vec<u32>,
+    offset_bits: u32,
+    offset_mask: u32,
+}
+impl ReferenceSeeds {
+    const EMPTY: u32 = u32::MAX;
+    const UNKNOWN: u32 = u32::MAX - 1;
+
+    fn build(index: &FragmentIndex, reference: &Reference) -> Option<Self> {
+        let count = index.patterns.len();
+        if count == 0 || reference.fragments.iter().all(Vec::is_empty) {
+            return None;
+        }
+        let id_bits = (usize::BITS - (count - 1).leading_zeros()).max(1);
+        if id_bits >= 31 {
+            return None;
+        }
+        let offset_bits = 31 - id_bits;
+        let offset_mask = (1u32 << offset_bits) - 1;
+        let last = reference.meta.contigs.last()?;
+        let bases = usize::try_from(last.start.checked_add(last.len as u64)?).ok()?;
+        if bases > (512 * 1024 * 1024) / 4 {
+            return None;
+        }
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(bases).ok()?;
+        entries.resize(bases, Self::EMPTY);
+        for (id, fragments) in reference.fragments.iter().enumerate() {
+            for &fragment in fragments {
+                if fragment.end < fragment.begin || fragment.end - fragment.begin < index.options.k
+                {
+                    continue;
+                }
+                for offset in fragment.begin..=fragment.end - index.options.k {
+                    let hit = seed_at(fragment, offset, index.options.k);
+                    let value = if offset > offset_mask as usize {
+                        Self::UNKNOWN
+                    } else {
+                        let packed = (((id as u32) << offset_bits) | offset as u32) << 1
+                            | u32::from(hit.reverse);
+                        if packed >= Self::UNKNOWN {
+                            Self::UNKNOWN
+                        } else {
+                            packed
+                        }
+                    };
+                    let entry = entries.get_mut(usize::try_from(hit.start).ok()?)?;
+                    if *entry == Self::EMPTY {
+                        *entry = value;
+                    } else if *entry != value {
+                        *entry = Self::UNKNOWN;
+                    }
+                }
+            }
+        }
+        Some(Self {
+            entries,
+            offset_bits,
+            offset_mask,
+        })
+    }
+
+    #[inline]
+    fn lookup(&self, index: &FragmentIndex, physical: u64, reverse: bool) -> Option<ReferenceSeed> {
+        let value = *self.entries.get(usize::try_from(physical).ok()?)?;
+        if value >= Self::UNKNOWN {
+            return None;
+        }
+        let payload = value >> 1;
+        let id = (payload >> self.offset_bits) as usize;
+        let offset = (payload & self.offset_mask) as usize;
+        let proto = index.patterns.get(id)?;
+        if offset + index.options.k > proto.len() {
+            return None;
+        }
+        Some(ReferenceSeed {
+            pattern: id as u32,
+            offset: offset as u32,
+            reverse: (value & 1 != 0) != reverse,
+        })
+    }
+}
+
 pub(super) struct RestrictionIndex {
     positions: Vec<u64>,
     repeated: Vec<u64>,
@@ -120,6 +213,7 @@ pub(super) struct RestrictionIndex {
     pools: Vec<Vec<ContextGroup>>,
     leaf_occurrences: Vec<LeafOccurrence>,
     leaf_rank: Option<LeafRank>,
+    reference_seeds: Option<ReferenceSeeds>,
 }
 
 // Exact aligned reference intervals for the current query contig. The diagonal
@@ -872,6 +966,13 @@ impl RestrictionIndex {
                 &reference_repeats_reverse,
                 index.options.k,
             );
+        let reference_seeds = ReferenceSeeds::build(index, reference);
+        eprintln!(
+            "[reference_seed_directory]\t{} bytes",
+            reference_seeds
+                .as_ref()
+                .map_or(0, |map| map.entries.len() * 4)
+        );
         let leaf_rank = LeafRank::build(&leaf_occurrences);
         eprintln!(
             "[context_leaf_rank]\t{} leaf occurrences\t{} rank bytes",
@@ -899,6 +1000,7 @@ impl RestrictionIndex {
             pools,
             leaf_occurrences,
             leaf_rank,
+            reference_seeds,
         })
     }
 
@@ -1111,21 +1213,32 @@ impl RestrictionIndex {
         for run in &query.runs {
             stream.reset();
             let mut pos = run.start;
+            let mut prefetched: Option<ReferenceSeed> = None;
             while pos + K <= run.end {
-                let found = stream.lookup(pos, run.end);
-                if !found.is_found() {
-                    let next = stream.next_after_miss(pos, &found);
-                    stats.absent_windows_skipped += next - pos - 1;
-                    pos = next;
-                    continue;
-                }
-                let id = found.string_id as usize;
-                let offset = found.kmer_id_in_string as usize;
+                let (id, offset, direction) = if let Some(seed) = prefetched.take() {
+                    // A skipped SSHash call leaves its stream stale. Reset before
+                    // any later fallback, including an adjacent seed.
+                    stream.reset();
+                    stats.reference_seed_hits += 1;
+                    (seed.pattern as usize, seed.offset as usize, seed.reverse)
+                } else {
+                    let found = stream.lookup(pos, run.end);
+                    if !found.is_found() {
+                        let next = stream.next_after_miss(pos, &found);
+                        stats.absent_windows_skipped += next - pos - 1;
+                        pos = next;
+                        continue;
+                    }
+                    (
+                        found.string_id as usize,
+                        found.kmer_id_in_string as usize,
+                        found.kmer_orientation < 0,
+                    )
+                };
                 let bit = index.position_offsets[id] + offset;
                 if let Some(bits) = present.as_deref_mut() {
                     bits[bit / 64] |= 1 << (bit % 64);
                 }
-                let direction = found.kmer_orientation < 0;
                 let remaining = if direction {
                     offset + 1
                 } else {
@@ -1186,6 +1299,7 @@ impl RestrictionIndex {
                         }
                     }
                 }
+                let mut seed_alignment: Option<(u64, bool, u64)> = None;
                 for location in locations
                     .into_iter()
                     .flatten()
@@ -1208,6 +1322,9 @@ impl RestrictionIndex {
                             };
                             advance = advance
                                 .max(self.known_alignment_span(physical, reverse, extension));
+                            if seed_alignment.is_none_or(|(_, _, old)| extension > old) {
+                                seed_alignment = Some((physical, reverse, extension));
+                            }
                         }
                         continue;
                     }
@@ -1238,11 +1355,12 @@ impl RestrictionIndex {
                     );
                     witnesses[usize::from(reverse)] = Some(recent.entries[slot]);
                     if present.is_none() {
-                        advance = advance.max(self.known_alignment_span(
-                            physical,
-                            reverse,
-                            if reverse { left } else { right },
-                        ));
+                        let extension = if reverse { left } else { right };
+                        advance =
+                            advance.max(self.known_alignment_span(physical, reverse, extension));
+                        if seed_alignment.is_none_or(|(_, _, old)| extension > old) {
+                            seed_alignment = Some((physical, reverse, extension));
+                        }
                     }
                     sink.push(Record {
                         begin: v.physical - left,
@@ -1253,6 +1371,20 @@ impl RestrictionIndex {
                         },
                     });
                     stats.contexts += 1;
+                }
+                if pos + advance + K <= run.end {
+                    if let (Some(map), Some((physical, reverse, extension))) =
+                        (&self.reference_seeds, seed_alignment)
+                    {
+                        if advance as u64 <= extension {
+                            let next = if reverse {
+                                physical - advance as u64
+                            } else {
+                                physical + advance as u64
+                            };
+                            prefetched = map.lookup(index, next, reverse);
+                        }
+                    }
                 }
                 stats.unique_alignment_windows_skipped += advance - proto_advance;
                 if advance > 1 {
@@ -1342,6 +1474,151 @@ impl RestrictionIndex {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reference_seed_directory_matches_independent_dictionary_on_both_strands() -> io::Result<()> {
+        fn check<const K: usize>() -> io::Result<()>
+        where
+            Kmer<K>: KmerBits,
+        {
+            let temp = tempfile::tempdir()?;
+            let mut rng = 555661133u64;
+            let core: Vec<_> = (0..2100)
+                .map(|_| {
+                    rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    b"ACGT"[(rng >> 62) as usize]
+                })
+                .collect();
+            let mut source = ProtoIndex {
+                options: LocateOptions {
+                    k: K,
+                    m: K.min(19),
+                    threads: 2,
+                    chunk_bases: 127,
+                    forward_only: false,
+                },
+                patterns: Vec::new(),
+                sequences: PackedSeqVec::default(),
+            };
+            for range in [0..550, 600..1200, 1250..2100] {
+                source.add_pattern(&core[range])?;
+            }
+            let index = FragmentIndex::from_graph(source, Some(temp.path()))?;
+            let path = temp.path().join("directory.fa");
+            let mut fasta = b">original\n".to_vec();
+            fasta.extend(&core);
+            fasta.extend(b"\n>reverse\n");
+            fasta.extend(reverse(&core));
+            fasta.extend(b"\n>ambiguous\n");
+            fasta.extend(&core[..800]);
+            fasta.extend(b"NNNNN");
+            fasta.extend(&core[800..]);
+            fasta.extend(b"\n>repeat\n");
+            fasta.extend(&core[100..900]);
+            fasta.push(b'\n');
+            std::fs::write(&path, fasta)?;
+            let mut reference = read_reference(&index, &path)?;
+            let map = ReferenceSeeds::build(&index, &reference).expect("small directory");
+            let mut checked = [0usize; 2];
+            for (c, contig) in reference.contigs.iter().enumerate() {
+                for pos in 0..contig.len() {
+                    let physical = reference.meta.contigs[c].start + pos as u64;
+                    for reverse_query in [false, true] {
+                        let Some(seed) = map.lookup(&index, physical, reverse_query) else {
+                            continue;
+                        };
+                        assert!(
+                            contig.bounds(pos, K).is_ok(),
+                            "must not cross an N or contig boundary"
+                        );
+                        let window: Vec<_> = (pos..pos + K)
+                            .map(|p| contig.forward.as_slice().get_ascii(p))
+                            .collect();
+                        let window = if reverse_query {
+                            reverse(&window)
+                        } else {
+                            window
+                        };
+                        let key = Kmer::<K>::from_ascii_unchecked(&window);
+                        let found = index.compact.as_ref().unwrap().dictionary.query::<K>(&key);
+                        assert!(found.is_found());
+                        assert_eq!(
+                            (seed.pattern as u64, seed.offset as u64, seed.reverse),
+                            (
+                                found.string_id,
+                                found.kmer_id_in_string,
+                                found.kmer_orientation < 0
+                            )
+                        );
+                        checked[usize::from(reverse_query)] += 1;
+                    }
+                }
+            }
+            assert!(checked.iter().all(|&n| n > 5000));
+            assert!(map.lookup(&index, u64::MAX, false).is_none());
+            // An unsupported coordinate space disables the accelerator before allocation.
+            reference.meta.contigs.last_mut().unwrap().start += 1u64 << 40;
+            assert!(ReferenceSeeds::build(&index, &reference).is_none());
+            Ok(())
+        }
+        check::<31>()?;
+        check::<33>()?;
+        check::<63>()
+    }
+
+    #[test]
+    fn reference_seed_directory_conflicts_are_permanent_and_empty_is_not_evidence() -> io::Result<()>
+    {
+        let temp = tempfile::tempdir()?;
+        let mut source = ProtoIndex {
+            options: LocateOptions {
+                k: 7,
+                m: 5,
+                threads: 1,
+                chunk_bases: 127,
+                forward_only: false,
+            },
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        // Canonical 7-mers here are distinct; synthetic fragment conflicts are
+        // introduced only after the independent dictionary has been built.
+        source.add_pattern(b"ACGATCC")?;
+        source.add_pattern(b"GGATGCA")?;
+        let index = FragmentIndex::from_graph(source, Some(temp.path()))?;
+        let mut reference = reference(&[b"ACGATCCGGATGCA".to_vec()], 7);
+        let fragment = |pattern, start, reverse| Fragment {
+            begin: 0,
+            end: 7,
+            hit: Hit {
+                pattern,
+                contig: 0,
+                start,
+                reverse,
+            },
+        };
+        reference.fragments = vec![
+            vec![fragment(0, 0, false)],
+            vec![fragment(1, 0, false), fragment(1, 0, false)],
+        ];
+        let map = ReferenceSeeds::build(&index, &reference).unwrap();
+        assert_eq!(map.entries[0], ReferenceSeeds::UNKNOWN);
+        assert!(map.lookup(&index, 0, false).is_none());
+        assert_eq!(map.entries[1], ReferenceSeeds::EMPTY);
+        assert!(map.lookup(&index, 1, false).is_none());
+        // Repeated identical entries are usable; a different strand is ambiguous.
+        reference.fragments = vec![vec![fragment(0, 0, false), fragment(0, 0, false)], vec![]];
+        let map = ReferenceSeeds::build(&index, &reference).unwrap();
+        assert_eq!(map.lookup(&index, 0, false).unwrap().pattern, 0);
+        assert!(!map.lookup(&index, 0, false).unwrap().reverse);
+        assert!(map.lookup(&index, 0, true).unwrap().reverse);
+        reference.fragments[0].push(fragment(0, 0, true));
+        reference.fragments[0].push(fragment(0, 0, false));
+        let map = ReferenceSeeds::build(&index, &reference).unwrap();
+        assert_eq!(map.entries[0], ReferenceSeeds::UNKNOWN);
+        assert!(map.lookup(&index, 0, false).is_none());
+        Ok(())
+    }
+
     use super::*;
 
     #[test]
@@ -1624,7 +1901,11 @@ mod tests {
                     .iter()
                     .map(|g| g.leaves.clone())
                     .collect::<Vec<_>>();
+                let mut saved_seeds = None;
                 for exhaustive in [false, true] {
+                    if exhaustive {
+                        saved_seeds = restriction.reference_seeds.take();
+                    }
                     if exhaustive {
                         for group in &mut restriction.groups {
                             group.leaves = 0..0;
@@ -1670,6 +1951,7 @@ mod tests {
                     }
                     outcomes.push(rows);
                 }
+                restriction.reference_seeds = saved_seeds;
                 for (group, leaves) in restriction.groups.iter_mut().zip(saved_leaves) {
                     group.leaves = leaves;
                 }
@@ -1843,6 +2125,7 @@ mod tests {
                 pools: Vec::new(),
                 leaf_occurrences: Vec::new(),
                 leaf_rank: None,
+                reference_seeds: None,
             };
             for position in 0..count {
                 for reverse in [false, true] {
@@ -1898,6 +2181,7 @@ mod tests {
             pools: Vec::new(),
             leaf_occurrences: Vec::new(),
             leaf_rank: None,
+            reference_seeds: None,
         };
         for position in 0..count {
             for reverse in [false, true] {
@@ -2104,6 +2388,7 @@ mod tests {
                 assert!(!is_set(&restriction.reference_repeats_reverse, 699 - k));
             }
             let mut total_skipped = 0;
+            let mut total_seed_hits = 0;
             for sequence in [
                 &core,
                 &reverse(&core),
@@ -2123,7 +2408,11 @@ mod tests {
                     .iter()
                     .map(|g| g.leaves.clone())
                     .collect::<Vec<_>>();
+                let mut saved_seeds = None;
                 for exhaustive in [false, true] {
+                    if exhaustive {
+                        saved_seeds = restriction.reference_seeds.take();
+                    }
                     if exhaustive {
                         for group in &mut restriction.groups {
                             group.leaves = 0..0;
@@ -2142,6 +2431,7 @@ mod tests {
                     )?;
                     if !exhaustive {
                         total_skipped += stats.unique_alignment_windows_skipped;
+                        total_seed_hits += stats.reference_seed_hits;
                     }
                     let mut keys: Vec<_> = sink
                         .shards
@@ -2153,6 +2443,7 @@ mod tests {
                     keys.dedup();
                     rows.push(keys);
                 }
+                restriction.reference_seeds = saved_seeds;
                 for (group, leaves) in restriction.groups.iter_mut().zip(saved_leaves) {
                     group.leaves = leaves;
                 }
@@ -2162,6 +2453,7 @@ mod tests {
                 restriction.context_singletons_reverse = singleton_reverse;
                 assert_eq!(rows[0], rows[1], "k={k}, query length={}", sequence.len());
             }
+            assert!(total_seed_hits > 0, "exercise cached reference seeds k={k}");
             assert!(
                 total_skipped > 1000,
                 "new cross-proto skip must be exercised for k={k}"
@@ -2227,6 +2519,7 @@ mod tests {
                 pools: Vec::new(),
                 leaf_occurrences: Vec::new(),
                 leaf_rank: None,
+                reference_seeds: None,
             };
             for bit in 0..count {
                 for backwards in [false, true] {
@@ -2305,6 +2598,7 @@ mod tests {
                 pools: vec![nodes],
                 leaf_occurrences: Vec::new(),
                 leaf_rank: None,
+                reference_seeds: None,
             };
             let query =
                 PackedSeqVec::from_ascii(&vec![if direction { b'T' } else { b'A' }; 20_000]);
@@ -2348,6 +2642,7 @@ mod tests {
             pools: vec![nodes],
             leaf_occurrences: Vec::new(),
             leaf_rank: None,
+            reference_seeds: None,
         };
         let query = PackedSeqVec::from_ascii(&sequence);
         for len in 3..=sequence.len() {
@@ -2501,6 +2796,7 @@ mod tests {
                     groups,
                     pools: vec![nodes],
                     leaf_rank: LeafRank::build(&records),
+                    reference_seeds: None,
                     leaf_occurrences: records,
                 };
                 assert_eq!(index.leaf_rank.is_some(), origin == 0);

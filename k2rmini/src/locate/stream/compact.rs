@@ -166,7 +166,10 @@ impl FragmentIndex {
 }
 
 impl CompactProtoIndex {
-    pub(super) fn query<'a, const K: usize>(&'a self, source: &'a PackedSeqVec) -> CompactQuery<'a, K>
+    pub(super) fn query<'a, const K: usize>(
+        &'a self,
+        source: &'a PackedSeqVec,
+    ) -> CompactQuery<'a, K>
     where
         Kmer<K>: KmerBits,
     {

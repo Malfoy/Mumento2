@@ -1,5 +1,5 @@
 {
-  "source_variant": "v95",
+  "source_variant": "v99",
   "source_sha256": {
     "Cargo.toml": "62c488d992c1da6f6a9d9357535560053846fb4113ab1070a5df618293497631",
     "Cargo.lock": "6c5d51f052766e256e1e7fbe54f7db4c75622c401e0305b5d647d6fbdd5f94af",
@@ -11,11 +11,11 @@
     "k2rmini/src/zstd_store.rs": "af93ff644e7d56dfa8b7081beb79e45f1a1b76f609db5dcd3e5cbb2a72460e42",
     "k2rmini/src/main.rs": "47e8623e3f4664f08ffbafbbbb6cb3b8cfc96910c6c8019cbd75f87d8cd2e0d7",
     "k2rmini/src/locate.rs": "0abd30dad01ba636729a64b272513feea590ce1fc3585cc1f1a4578400bf0e40",
-    "k2rmini/src/locate/stream.rs": "3b0ffafbe59e1f9d9642a4aa6171d2694e6ebb826f2eaa6b9c463688f4ee8149",
+    "k2rmini/src/locate/stream.rs": "df20531b51829e89892ee5ddfd7834218b2b7013ffe7fff116d4b78df1972577",
     "k2rmini/src/bin/k2rminimulti.rs": "0570fc4f631d7dfde9953bc8f16d9405434070fae77cd65ce936e2c246a29db5",
     "k2rmini/src/bin/k2rlocate.rs": "d734d58f467a4e2438e46e453342169b95fbf733754766ae860ff4b2210b8b7b",
-    "k2rmini/src/locate/stream/compact.rs": "48998390722eae72947b25dfbd93bb83af03d4284807b5ef0ad98376581528ec",
-    "k2rmini/src/locate/stream/restriction.rs": "a13b0ccfc6879941befe55270cf9ad573da45220db128d994f7c25476e8a1101",
+    "k2rmini/src/locate/stream/compact.rs": "e6585a96ba55f75d5acf8ac15e13c0784be74febdaf585290233ae813282e585",
+    "k2rmini/src/locate/stream/restriction.rs": "89f428588c9dfe8b38eae9b61c327ed02abe3b9bf667d642b02d19ff5411eda9",
     "k2rmini/src/locate/stream/shared.rs": "6b1cae08e227a29030ff93d8468aa0280ed4732b5190e45bef332b607d9bb8d5",
     "k2rmini/src/locate/stream/shared/corpus_tests.rs": "7f8c0c1a3cbbdac31bd22f6c0602d00aaa7b0b06275f9f351c08b042aea46de3",
     "k2rmini/src/locate/stream/shared/tests.rs": "6c5de6d7ee72fe7091dac20a229400d3deb6af2747d50cc30abfaa41d4748d55",
@@ -131,8 +131,8 @@
     "vendor/matchtigs/src/bin.rs": "1487f0b86ec81a62b499488f18f6eaaadef32022b10ad10414c5d7f34dd6551d"
   },
   "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.0\nLLVM version: 22.1.6\n",
-  "raw_profile_directory": "/home/nadine/code/mumento2/target/human-profile-v95-raw-single32",
-  "rustflags": "-Ctarget-cpu=native -Cprofile-generate=/home/nadine/code/mumento2/target/human-profile-v95-raw",
+  "raw_profile_directory": "/home/nadine/code/mumento2/target/human-profile-v99-raw-single32",
+  "rustflags": "-Ctarget-cpu=native -Cprofile-generate=/home/nadine/code/mumento2/target/human-profile-v99-raw",
   "build_command": [
     "cargo",
     "build",
@@ -148,25 +148,17 @@
     "4"
   ],
   "instrumented_binary": "/home/nadine/code/mumento2/target/human-profile-generate/x86_64-unknown-linux-gnu/release/mumento2",
-  "instrumented_binary_sha256": "5a399d8e4e4444d417bee2bfbd0e0a35538b5a455c1096a5ce0ae895e290eff1",
-  "original_raw_profile_directory": "/home/nadine/code/mumento2/target/human-profile-v95-raw",
+  "instrumented_binary_sha256": "247ee20cb652e0b73259ad769bff75104604f900ed20b7075ef837406f48f965",
+  "original_raw_profile_directory": "/home/nadine/code/mumento2/target/human-profile-v99-raw",
   "training_input_count": 32,
   "training_threads": 1,
   "training_selection": "Nested first32 chromosome19 haplotypes from frozen512 manifest; same first16 graph seed genomes",
-  "profile_sha256": "d9dad917967899ebe7d2b597803731368ea7263c8974ccbdac0ff7256eddf270",
+  "profile_sha256": "19874398d8dc04a4c20805b1b190ea2b8d7abaaf7c2ad2a217172ed7a7b9cb74",
   "profile_path": "profiles/mumento2-human-chr19-llvm22.profdata",
   "training_manifest": "benchmarks/human/dataset/manifest-512.json.zst",
   "training_manifest_sha256": "008f33adfc08e347fe4a694757054dcf9ea3d1ab424f5b9a56b64e2686a99d00",
-  "training_report": "benchmarks/human/optimization-sshash-20261018/human-pgo-v95-training32-single/chr19-32/report.json.zst",
+  "training_report": "benchmarks/human/optimization-sshash-20261018/human-pgo-v99-training32-single/chr19-32/report.json.zst",
   "training_exact_rows": 165121,
-  "created_utc": "2026-10-19T03:19:31.651349+00:00",
-  "published_metadata_path": "profiles/mumento2-human-chr19-llvm22.json",
-  "excluded_generated_build_files": {
-    "vendor/sshash-lib/target/debug/build/thiserror-91fdec14ed5ed7c3/out/private.rs": "f7906d652f9ff9cfb6ba31b096ffc511c7fb98ee44614c10d6fe41ad533bdc0c",
-    "vendor/sshash-lib/target/debug/build/zstd-sys-7ea75827c332c398/out/flag_check.c": "65d2fad425e300ae19bd229a513aa7564086a7f0feb9405f806c70b2366ad59a",
-    "vendor/sshash-lib/target/debug/build/zstd-sys-7ea75827c332c398/out/include/zdict.h": "abacadb94e3f79e591f4b1648e839b0160fbf4291211fd01bdba1380269b245c",
-    "vendor/sshash-lib/target/debug/build/zstd-sys-7ea75827c332c398/out/include/zstd_errors.h": "66a8c3f71d12ea6e797e4f622f31f3f8f81c41b36f48cad4f5de7d8bfb6aac0a",
-    "vendor/sshash-lib/target/debug/build/zstd-sys-7ea75827c332c398/out/include/zstd.h": "9b4bc8245565c98ccfc61c07749928b57e7c0f6fddb0530c4f6aa1971893d88b"
-  },
-  "source_capture_note": "Generated Cargo target outputs excluded from publishable source identity; original complete build record remains in archived training metadata. Executable and profile digests unchanged."
+  "created_utc": "2026-10-19T07:06:41.381862+00:00",
+  "published_metadata_path": "profiles/mumento2-human-chr19-llvm22.json"
 }
