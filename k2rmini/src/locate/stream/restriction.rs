@@ -42,6 +42,68 @@ struct LeafOccurrence {
     location: u64,
     leaves: [u32; 2],
 }
+
+// A bounded rank directory replaces searches of the per-seed leaf lists.
+// Entries still identify an original full-key record in its original group.
+// Sparse/wide coordinate spaces and conflicting keys retain binary search.
+struct LeafRank {
+    words: Vec<u64>,
+    ranks: Vec<u32>,
+    records: Vec<u32>,
+}
+impl LeafRank {
+    fn build(records: &[LeafOccurrence]) -> Option<Self> {
+        if records.is_empty() || records.len() > u32::MAX as usize {
+            return None;
+        }
+        let maximum = usize::try_from(records.iter().map(|r| r.location).max()?).ok()?;
+        let count = (maximum / 64).checked_add(1)?;
+        // At most 64 MiB for words/prefix counts, and bounded density. This
+        // optional accelerator must not allocate across large coordinate gaps.
+        if count > (64 * 1024 * 1024) / 12 || count > records.len().saturating_mul(8).max(1024) {
+            return None;
+        }
+        let mut ordered: Vec<u32> = (0..records.len() as u32).collect();
+        ordered.sort_unstable_by_key(|&i| records[i as usize].location);
+        let mut words = vec![0u64; count];
+        for &i in &ordered {
+            let location = records[i as usize].location as usize;
+            let mask = 1u64 << (location % 64);
+            let word = &mut words[location / 64];
+            if *word & mask != 0 {
+                return None;
+            }
+            *word |= mask;
+        }
+        let mut total = 0u32;
+        let ranks = words
+            .iter()
+            .map(|&word| {
+                let prefix = total;
+                total += word.count_ones();
+                prefix
+            })
+            .collect();
+        Some(Self {
+            words,
+            ranks,
+            records: ordered,
+        })
+    }
+
+    #[inline]
+    fn lookup(&self, location: u64) -> Option<usize> {
+        let location = usize::try_from(location).ok()?;
+        let word_index = location / 64;
+        let mask = 1u64 << (location % 64);
+        let word = *self.words.get(word_index)?;
+        if word & mask == 0 {
+            return None;
+        }
+        let rank = self.ranks[word_index] + (word & (mask - 1)).count_ones();
+        Some(self.records[rank as usize] as usize)
+    }
+}
 pub(super) struct RestrictionIndex {
     positions: Vec<u64>,
     repeated: Vec<u64>,
@@ -54,6 +116,7 @@ pub(super) struct RestrictionIndex {
     groups: Vec<RepeatedPosition>,
     pools: Vec<Vec<ContextGroup>>,
     leaf_occurrences: Vec<LeafOccurrence>,
+    leaf_rank: Option<LeafRank>,
 }
 
 // Exact aligned reference intervals for the current query contig. The diagonal
@@ -689,6 +752,14 @@ impl RestrictionIndex {
             }
             pools.push(nodes);
         }
+        let leaf_rank = LeafRank::build(&leaf_occurrences);
+        eprintln!(
+            "[context_leaf_rank]\t{} leaf occurrences\t{} rank bytes",
+            leaf_occurrences.len(),
+            leaf_rank.as_ref().map_or(0, |rank| rank.words.len() * 8
+                + rank.ranks.len() * 4
+                + rank.records.len() * 4)
+        );
         eprintln!(
             "[proto_restriction]\t{:.6}s\t{} repeated positions\t{} refined positions\t{} context groups",
             started.elapsed().as_secs_f64(),
@@ -705,6 +776,7 @@ impl RestrictionIndex {
             groups,
             pools,
             leaf_occurrences,
+            leaf_rank,
         })
     }
 
@@ -734,10 +806,22 @@ impl RestrictionIndex {
         let location = physical
             .checked_mul(2)?
             .checked_add(u64::from(witness.reverse != direction))?;
-        let records = self.leaf_occurrences.get(group.leaves.clone())?;
-        let record = &records[records
-            .binary_search_by_key(&location, |r| r.location)
-            .ok()?];
+        let record = if let Some(rank) = &self.leaf_rank {
+            let id = rank.lookup(location)?;
+            if !group.leaves.contains(&id) {
+                return None;
+            }
+            let record = self.leaf_occurrences.get(id)?;
+            if record.location != location {
+                return None;
+            }
+            record
+        } else {
+            let records = self.leaf_occurrences.get(group.leaves.clone())?;
+            &records[records
+                .binary_search_by_key(&location, |r| r.location)
+                .ok()?]
+        };
         let node = record.leaves[usize::from(direction)];
         if node == NONE {
             return None;
@@ -1624,6 +1708,7 @@ mod tests {
                 groups: Vec::new(),
                 pools: Vec::new(),
                 leaf_occurrences: Vec::new(),
+                leaf_rank: None,
             };
             for position in 0..count {
                 for reverse in [false, true] {
@@ -1829,6 +1914,7 @@ mod tests {
                 groups: Vec::new(),
                 pools: Vec::new(),
                 leaf_occurrences: Vec::new(),
+                leaf_rank: None,
             };
             for bit in 0..count {
                 for backwards in [false, true] {
@@ -1904,6 +1990,7 @@ mod tests {
                 }],
                 pools: vec![nodes],
                 leaf_occurrences: Vec::new(),
+                leaf_rank: None,
             };
             let query =
                 PackedSeqVec::from_ascii(&vec![if direction { b'T' } else { b'A' }; 20_000]);
@@ -1944,6 +2031,7 @@ mod tests {
             }],
             pools: vec![nodes],
             leaf_occurrences: Vec::new(),
+            leaf_rank: None,
         };
         let query = PackedSeqVec::from_ascii(&sequence);
         for len in 3..=sequence.len() {
@@ -1955,6 +2043,66 @@ mod tests {
         }
         Ok(())
     }
+    #[test]
+    fn leaf_rank_preserves_full_keys_and_original_record_ids() {
+        let locations = [8191u64, 0, 63, 64, 65, 127, 128, 4095, 4096, 3];
+        let records: Vec<_> = locations
+            .iter()
+            .map(|&location| LeafOccurrence {
+                location,
+                leaves: [NONE; 2],
+            })
+            .collect();
+        let rank = LeafRank::build(&records).unwrap();
+        for location in 0..9000 {
+            assert_eq!(
+                rank.lookup(location),
+                locations.iter().position(|&key| key == location),
+                "location {location}"
+            );
+        }
+        assert_eq!(rank.lookup(u64::MAX), None);
+        let mut state = 0x8a33_2198_c49a_bde1u64;
+        let mut locations = std::collections::BTreeSet::new();
+        for _ in 0..10000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            locations.insert(state % 100000);
+        }
+        let records: Vec<_> = locations
+            .iter()
+            .rev()
+            .map(|&location| LeafOccurrence {
+                location,
+                leaves: [NONE; 2],
+            })
+            .collect();
+        let rank = LeafRank::build(&records).unwrap();
+        for location in 0..100100 {
+            let actual = rank.lookup(location);
+            assert_eq!(actual.is_some(), locations.contains(&location));
+            if let Some(id) = actual {
+                assert_eq!(records[id].location, location);
+            }
+        }
+    }
+
+    #[test]
+    fn leaf_rank_falls_back_for_conflicts_and_wide_sparse_coordinates() {
+        assert!(LeafRank::build(&[]).is_none());
+        for locations in [vec![1u64, 1], vec![0, 1 << 44], vec![u64::MAX]] {
+            let records: Vec<_> = locations
+                .iter()
+                .map(|&location| LeafOccurrence {
+                    location,
+                    leaves: [NONE; 2],
+                })
+                .collect();
+            assert!(LeafRank::build(&records).is_none());
+        }
+    }
+
     #[test]
     fn alignment_witness_resolves_only_the_original_exact_leaf() -> io::Result<()> {
         let mut state = 0x69ac_19d2_7f35_138bu64;
@@ -2034,8 +2182,10 @@ mod tests {
                     reference_repeats_reverse: Vec::new(),
                     groups,
                     pools: vec![nodes],
+                    leaf_rank: LeafRank::build(&records),
                     leaf_occurrences: records,
                 };
+                assert_eq!(index.leaf_rank.is_some(), origin == 0);
                 let mut exercised = [0usize; 2];
                 let mut shortened = 0;
                 for (bit, group) in index.groups.iter().enumerate() {
