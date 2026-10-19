@@ -34,6 +34,13 @@ struct RepeatedPosition {
     second: u64,
     roots: [u32; 2],
     pool: usize,
+    leaves: Range<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LeafOccurrence {
+    location: u64,
+    leaves: [u32; 2],
 }
 pub(super) struct RestrictionIndex {
     positions: Vec<u64>,
@@ -46,6 +53,7 @@ pub(super) struct RestrictionIndex {
     reference_repeats_reverse: Vec<u64>,
     groups: Vec<RepeatedPosition>,
     pools: Vec<Vec<ContextGroup>>,
+    leaf_occurrences: Vec<LeafOccurrence>,
 }
 
 // Exact aligned reference intervals for the current query contig. The diagonal
@@ -164,6 +172,51 @@ fn view(reference: &Reference, location: u64, direction: bool, k: usize) -> View
         reverse: seed.reverse,
     }
 }
+fn collect_leaf_occurrences(
+    nodes: &[ContextGroup],
+    ranges: [Range<usize>; 2],
+) -> Vec<LeafOccurrence> {
+    let mut entries = Vec::new();
+    for (direction, range) in ranges.into_iter().enumerate() {
+        for node in range {
+            let item = &nodes[node];
+            if item.depth & LEAF == 0 {
+                continue;
+            }
+            for location in [item.sample, item.second_location()] {
+                if location != NO_LOCATION {
+                    entries.push((location, direction, node as u32));
+                }
+            }
+        }
+    }
+    entries.sort_unstable();
+    let mut result = Vec::new();
+    let mut begin = 0;
+    while begin < entries.len() {
+        let location = entries[begin].0;
+        let mut end = begin;
+        let mut leaves = [NONE; 2];
+        let mut conflict = [false; 2];
+        while end < entries.len() && entries[end].0 == location {
+            let (_, direction, node) = entries[end];
+            conflict[direction] |= leaves[direction] != NONE && leaves[direction] != node;
+            leaves[direction] = node;
+            end += 1;
+        }
+        for direction in 0..2 {
+            if conflict[direction] {
+                leaves[direction] = NONE;
+            }
+        }
+        if leaves != [NONE; 2] {
+            result.push(LeafOccurrence { location, leaves });
+        }
+        begin = end;
+    }
+    result
+}
+
 fn child_base(view: &View<'_>, depth: usize) -> usize {
     view.seq.as_slice().get(view.start + depth) as usize
 }
@@ -553,6 +606,7 @@ impl RestrictionIndex {
                     second: copies[start + 1].1,
                     roots: [NONE; 2],
                     pool: 0,
+                    leaves: 0..0,
                 });
                 if end - start > 2 {
                     ranges.push((groups.len() - 1, start, end));
@@ -588,6 +642,7 @@ impl RestrictionIndex {
                         }
                         let (group, start, end) = ranges[job];
                         let locations: Vec<_> = copies[start..end].iter().map(|p| p.1).collect();
+                        let forward_begin = nodes.len();
                         let forward = refine(
                             reference,
                             locations.clone(),
@@ -596,6 +651,7 @@ impl RestrictionIndex {
                             index.options.k,
                             &mut nodes,
                         )?;
+                        let reverse_begin = nodes.len();
                         let reverse = refine(
                             reference,
                             locations,
@@ -604,7 +660,11 @@ impl RestrictionIndex {
                             index.options.k,
                             &mut nodes,
                         )?;
-                        roots.push((group, [forward, reverse]));
+                        let leaves = collect_leaf_occurrences(
+                            &nodes,
+                            [forward_begin..reverse_begin, reverse_begin..nodes.len()],
+                        );
+                        roots.push((group, [forward, reverse], leaves));
                     }
                     Ok((nodes, roots))
                 }));
@@ -618,8 +678,12 @@ impl RestrictionIndex {
                 .collect()
         })?;
         let mut pools = Vec::new();
+        let mut leaf_occurrences = Vec::new();
         for (pool, (nodes, roots)) in results.into_iter().enumerate() {
-            for (group, roots) in roots {
+            for (group, roots, leaves) in roots {
+                let begin = leaf_occurrences.len();
+                leaf_occurrences.extend(leaves);
+                groups[group].leaves = begin..leaf_occurrences.len();
                 groups[group].roots = roots;
                 groups[group].pool = pool;
             }
@@ -640,7 +704,85 @@ impl RestrictionIndex {
             reference_repeats_reverse,
             groups,
             pools,
+            leaf_occurrences,
         })
+    }
+
+    // A previous exact alignment proves the entire right context to a leaf.
+    // The full encoded occurrence key identifies that same leaf; otherwise the
+    // original DNA-checked trie lookup remains authoritative.
+    fn witnessed_leaf(
+        &self,
+        group: &RepeatedPosition,
+        direction: bool,
+        start: usize,
+        end: usize,
+        query_len: usize,
+        k: usize,
+        witness: RecentAlignment,
+    ) -> Option<[u64; 2]> {
+        let oriented = if witness.reverse {
+            query_len.checked_sub(start.checked_add(k)?)?
+        } else {
+            start
+        };
+        let physical = u64::try_from((oriented as i128).checked_sub(witness.diagonal)?).ok()?;
+        let seed_end = physical.checked_add(k as u64)?;
+        if physical < witness.begin || seed_end > witness.end {
+            return None;
+        }
+        let location = physical
+            .checked_mul(2)?
+            .checked_add(u64::from(witness.reverse != direction))?;
+        let records = self.leaf_occurrences.get(group.leaves.clone())?;
+        let record = &records[records
+            .binary_search_by_key(&location, |r| r.location)
+            .ok()?];
+        let node = record.leaves[usize::from(direction)];
+        if node == NONE {
+            return None;
+        }
+        let leaf = &self.pools[group.pool][node as usize];
+        debug_assert_ne!(leaf.depth & LEAF, 0);
+        let depth = leaf.depth & !LEAF;
+        let proven = if witness.reverse {
+            seed_end - witness.begin
+        } else {
+            witness.end - physical
+        };
+        if end.checked_sub(start)? < depth || proven < depth as u64 {
+            return None;
+        }
+        Some([leaf.sample, leaf.second_location()])
+    }
+
+    fn lookup_with_witness(
+        &self,
+        reference: &Reference,
+        bit: usize,
+        direction: bool,
+        query: &PackedSeqVec,
+        start: usize,
+        end: usize,
+        k: usize,
+        witnesses: &[Option<RecentAlignment>; 2],
+        witness_hits: &mut usize,
+    ) -> Option<[u64; 2]> {
+        let value = *self.positions.get(bit)?;
+        if value != NO_LOCATION && self.repeated[bit / 64] & (1 << (bit % 64)) != 0 {
+            let group = &self.groups[value as usize];
+            if !group.leaves.is_empty() {
+                for witness in witnesses.iter().flatten() {
+                    if let Some(locations) =
+                        self.witnessed_leaf(group, direction, start, end, query.len(), k, *witness)
+                    {
+                        *witness_hits += 1;
+                        return Some(locations);
+                    }
+                }
+            }
+        }
+        self.lookup(reference, bit, direction, query, start, end, k)
     }
 
     fn lookup(
@@ -759,6 +901,7 @@ impl RestrictionIndex {
         let compact = index.compact.as_ref().unwrap();
         let mut stream = compact.query::<K>(&query.forward);
         let mut recent = RecentAlignments::default();
+        let mut witnesses = [None; 2];
         for run in &query.runs {
             stream.reset();
             let mut pos = run.start;
@@ -798,8 +941,17 @@ impl RestrictionIndex {
                     self.constant_span(bit, direction, 1 + right)
                 };
                 let proto_advance = advance;
-                let locations =
-                    self.lookup(reference, bit, direction, &query.forward, pos, run.end, K);
+                let locations = self.lookup_with_witness(
+                    reference,
+                    bit,
+                    direction,
+                    &query.forward,
+                    pos,
+                    run.end,
+                    K,
+                    &witnesses,
+                    &mut stats.context_witness_hits,
+                );
                 // A failed right-context refinement has no anchor to emit.
                 // Complete occurrence coverage still permits a jump: every
                 // later mapping already exists at this seed, even if other
@@ -838,6 +990,7 @@ impl RestrictionIndex {
                     let oriented_query = if reverse { query.len() - pos - K } else { pos };
                     let (slot, diagonal) = RecentAlignments::key(physical, oriented_query, reverse);
                     if recent.covers(slot, diagonal, reverse, physical, K) {
+                        witnesses[usize::from(reverse)] = Some(recent.entries[slot]);
                         stats.cache_hits += 1;
                         stats.hot_cache_hits += 1;
                         if present.is_none() {
@@ -877,6 +1030,7 @@ impl RestrictionIndex {
                         physical - left,
                         physical + K as u64 + right,
                     );
+                    witnesses[usize::from(reverse)] = Some(recent.entries[slot]);
                     if present.is_none() {
                         advance = advance.max(self.unique_alignment_span(
                             physical,
@@ -1257,7 +1411,17 @@ mod tests {
             for (query_id, sequence) in queries.iter().enumerate() {
                 let query = PackedContig::new(sequence, k);
                 let mut outcomes = Vec::new();
+                let saved_leaves = restriction
+                    .groups
+                    .iter()
+                    .map(|g| g.leaves.clone())
+                    .collect::<Vec<_>>();
                 for exhaustive in [false, true] {
+                    if exhaustive {
+                        for group in &mut restriction.groups {
+                            group.leaves = 0..0;
+                        }
+                    }
                     restriction.reference_repeats.clone_from(&forward);
                     restriction
                         .reference_repeats_reverse
@@ -1289,6 +1453,9 @@ mod tests {
                         }
                     }
                     outcomes.push(rows);
+                }
+                for (group, leaves) in restriction.groups.iter_mut().zip(saved_leaves) {
+                    group.leaves = leaves;
                 }
                 assert_eq!(outcomes[0], outcomes[1], "k={k}, query={query_id}");
             }
@@ -1456,6 +1623,7 @@ mod tests {
                 reference_repeats: words,
                 groups: Vec::new(),
                 pools: Vec::new(),
+                leaf_occurrences: Vec::new(),
             };
             for position in 0..count {
                 for reverse in [false, true] {
@@ -1559,7 +1727,17 @@ mod tests {
                 let mut rows = Vec::new();
                 let repeats = restriction.reference_repeats.clone();
                 let reverse_repeats = restriction.reference_repeats_reverse.clone();
+                let saved_leaves = restriction
+                    .groups
+                    .iter()
+                    .map(|g| g.leaves.clone())
+                    .collect::<Vec<_>>();
                 for exhaustive in [false, true] {
+                    if exhaustive {
+                        for group in &mut restriction.groups {
+                            group.leaves = 0..0;
+                        }
+                    }
                     if exhaustive {
                         restriction.reference_repeats.fill(u64::MAX);
                         restriction.reference_repeats_reverse.fill(u64::MAX);
@@ -1581,6 +1759,9 @@ mod tests {
                     keys.sort_unstable();
                     keys.dedup();
                     rows.push(keys);
+                }
+                for (group, leaves) in restriction.groups.iter_mut().zip(saved_leaves) {
+                    group.leaves = leaves;
                 }
                 restriction.reference_repeats = repeats;
                 restriction.reference_repeats_reverse = reverse_repeats;
@@ -1647,6 +1828,7 @@ mod tests {
                 reference_repeats_reverse: Vec::new(),
                 groups: Vec::new(),
                 pools: Vec::new(),
+                leaf_occurrences: Vec::new(),
             };
             for bit in 0..count {
                 for backwards in [false, true] {
@@ -1718,8 +1900,10 @@ mod tests {
                     second: locations[1],
                     roots: [root; 2],
                     pool: 0,
+                    leaves: 0..0,
                 }],
                 pools: vec![nodes],
+                leaf_occurrences: Vec::new(),
             };
             let query =
                 PackedSeqVec::from_ascii(&vec![if direction { b'T' } else { b'A' }; 20_000]);
@@ -1756,8 +1940,10 @@ mod tests {
                 second: locations[1],
                 roots: [root; 2],
                 pool: 0,
+                leaves: 0..0,
             }],
             pools: vec![nodes],
+            leaf_occurrences: Vec::new(),
         };
         let query = PackedSeqVec::from_ascii(&sequence);
         for len in 3..=sequence.len() {
@@ -1768,5 +1954,231 @@ mod tests {
             );
         }
         Ok(())
+    }
+    #[test]
+    fn alignment_witness_resolves_only_the_original_exact_leaf() -> io::Result<()> {
+        let mut state = 0x69ac_19d2_7f35_138bu64;
+        let core: Vec<_> = (0..220)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                b"ACGT"[(state & 3) as usize]
+            })
+            .collect();
+        let mut changed = core.clone();
+        changed[170] = if changed[170] == b'A' { b'C' } else { b'A' };
+        let mut ambiguous = core.clone();
+        ambiguous[140..145].fill(b'N');
+        let sequences = vec![
+            core.clone(),
+            changed,
+            core[..180].to_vec(),
+            reverse(&core),
+            core[20..190].to_vec(),
+            ambiguous,
+            [b"ACG".repeat(45), b"TTGAC".to_vec()].concat(),
+            [b"ACG".repeat(42), b"CCATT".to_vec()].concat(),
+            b"ACG".repeat(43),
+        ];
+        for k in [3usize, 7, 31, 33, 63] {
+            for origin in [0u64, 1 << 44] {
+                let mut reference = reference(&sequences, k);
+                for contig in &mut reference.meta.contigs {
+                    contig.start += origin;
+                }
+                // Build occurrence groups independently from the graph scanner.
+                let mut canonical = std::collections::BTreeMap::<Vec<u8>, Vec<u64>>::new();
+                for (id, seq) in sequences.iter().enumerate() {
+                    for run in &reference.contigs[id].runs {
+                        for pos in run.start..=run.end - k {
+                            let window = &seq[pos..pos + k];
+                            let rc = reverse(window);
+                            let strand = rc.as_slice() < window;
+                            canonical
+                                .entry(if strand { rc } else { window.to_vec() })
+                                .or_default()
+                                .push(
+                                    ((reference.meta.contigs[id].start + pos as u64) * 2)
+                                        | u64::from(strand),
+                                );
+                        }
+                    }
+                }
+                let mut groups = Vec::new();
+                let mut nodes = Vec::new();
+                let mut records = Vec::new();
+                for locations in canonical.into_values().filter(|v| v.len() > 2) {
+                    let begin = nodes.len();
+                    let forward = refine(&reference, locations.clone(), false, k, k, &mut nodes)?;
+                    let middle = nodes.len();
+                    let reverse = refine(&reference, locations.clone(), true, k, k, &mut nodes)?;
+                    let leaf_begin = records.len();
+                    records.extend(collect_leaf_occurrences(
+                        &nodes,
+                        [begin..middle, middle..nodes.len()],
+                    ));
+                    groups.push(RepeatedPosition {
+                        first: locations[0],
+                        second: locations[1],
+                        roots: [forward, reverse],
+                        pool: 0,
+                        leaves: leaf_begin..records.len(),
+                    });
+                }
+                let index = RestrictionIndex {
+                    positions: (0..groups.len() as u64).collect(),
+                    repeated: vec![u64::MAX; groups.len().div_ceil(64)],
+                    boundaries: Vec::new(),
+                    reference_repeats: Vec::new(),
+                    reference_repeats_reverse: Vec::new(),
+                    groups,
+                    pools: vec![nodes],
+                    leaf_occurrences: records,
+                };
+                let mut exercised = [0usize; 2];
+                let mut shortened = 0;
+                for (bit, group) in index.groups.iter().enumerate() {
+                    for record in &index.leaf_occurrences[group.leaves.clone()] {
+                        for direction in [false, true] {
+                            let node = record.leaves[usize::from(direction)];
+                            if node == NONE {
+                                continue;
+                            }
+                            let depth = index.pools[0][node as usize].depth & !LEAF;
+                            let v = view(&reference, record.location, direction, k);
+                            let local =
+                                (v.physical - reference.meta.contigs[v.contig].start) as usize;
+                            let bounds = reference.contigs[v.contig].bounds(local, k).unwrap();
+                            let oriented = if v.reverse {
+                                v.seq.len() - v.start - k
+                            } else {
+                                v.start
+                            };
+                            let witness = RecentAlignment {
+                                diagonal: oriented as i128 - v.physical as i128,
+                                begin: reference.meta.contigs[v.contig].start + bounds.start as u64,
+                                end: reference.meta.contigs[v.contig].start + bounds.end as u64,
+                                reverse: v.reverse,
+                            };
+                            for remaining in [
+                                k,
+                                k + 1,
+                                depth.saturating_sub(1),
+                                depth,
+                                depth + 1,
+                                v.end - v.start,
+                            ] {
+                                if remaining < k || remaining > v.end - v.start {
+                                    continue;
+                                }
+                                let actual = index.witnessed_leaf(
+                                    group,
+                                    direction,
+                                    v.start,
+                                    v.start + remaining,
+                                    v.seq.len(),
+                                    k,
+                                    witness,
+                                );
+                                let expected = index.lookup(
+                                    &reference,
+                                    bit,
+                                    direction,
+                                    v.seq,
+                                    v.start,
+                                    v.start + remaining,
+                                    k,
+                                );
+                                if remaining >= depth {
+                                    assert_eq!(
+                                        actual, expected,
+                                        "k={k}, origin={origin}, direction={direction}"
+                                    );
+                                    assert!(actual.is_some());
+                                    exercised[usize::from(direction)] += 1;
+                                } else {
+                                    assert!(actual.is_none());
+                                    shortened += 1;
+                                }
+                            }
+                            if depth > k {
+                                let mut short = witness;
+                                if short.reverse {
+                                    short.begin = v.physical;
+                                } else {
+                                    short.end = v.physical + k as u64;
+                                }
+                                assert!(
+                                    index
+                                        .witnessed_leaf(
+                                            group,
+                                            direction,
+                                            v.start,
+                                            v.end,
+                                            v.seq.len(),
+                                            k,
+                                            short
+                                        )
+                                        .is_none()
+                                );
+                            }
+                            for diagonal in [i128::MAX, i128::MIN] {
+                                assert!(
+                                    index
+                                        .witnessed_leaf(
+                                            group,
+                                            direction,
+                                            v.start,
+                                            v.end,
+                                            v.seq.len(),
+                                            k,
+                                            RecentAlignment {
+                                                diagonal,
+                                                ..witness
+                                            }
+                                        )
+                                        .is_none()
+                                );
+                            }
+                            assert!(
+                                index
+                                    .witnessed_leaf(
+                                        group,
+                                        direction,
+                                        v.start,
+                                        v.end,
+                                        v.seq.len(),
+                                        k,
+                                        RecentAlignment {
+                                            begin: witness.end,
+                                            ..witness
+                                        }
+                                    )
+                                    .is_none()
+                            );
+                        }
+                    }
+                }
+                assert!(exercised.into_iter().all(|n| n > 100));
+                assert!(shortened > 100);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn alignment_witness_leaf_metadata_rejects_conflicting_assignments() {
+        let nodes = vec![
+            ContextGroup::leaf(7, 4, NO_LOCATION),
+            ContextGroup::leaf(8, 4, 1 << 45),
+            ContextGroup::leaf(9, 4, 1 << 45),
+        ];
+        let records = collect_leaf_occurrences(&nodes, [0..2, 2..3]);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].location, 4);
+        assert_eq!(records[0].leaves, [NONE, 2]);
+        assert_eq!(records[1].location, 1 << 45);
+        assert_eq!(records[1].leaves, [1, 2]);
     }
 }

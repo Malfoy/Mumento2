@@ -119,6 +119,7 @@ struct ScanStats {
     alignments: usize,
     cache_hits: usize,
     hot_cache_hits: usize,
+    context_witness_hits: usize,
     absent_windows_skipped: usize,
     unique_alignment_windows_skipped: usize,
     extended_bases: u64,
@@ -131,6 +132,7 @@ impl ScanStats {
         self.alignments += other.alignments;
         self.cache_hits += other.cache_hits;
         self.hot_cache_hits += other.hot_cache_hits;
+        self.context_witness_hits += other.context_witness_hits;
         self.absent_windows_skipped += other.absent_windows_skipped;
         self.unique_alignment_windows_skipped += other.unique_alignment_windows_skipped;
         self.extended_bases += other.extended_bases;
@@ -1817,6 +1819,10 @@ fn locate_impl(
     eprintln!(
         "[unique_alignment_skips]\t{} seed windows skipped across proto boundaries",
         scan_stats.unique_alignment_windows_skipped
+    );
+    eprintln!(
+        "[context_witness_hits]\t{} exact context lookups reused",
+        scan_stats.context_witness_hits
     );
     eprintln!(
         "[scan_summary]\t{} source genome reads\t{} contexts\t{} new exact alignments\t{} alignment cache hits\t{} extended bases\t{} first-level cache hits\t{} minimizer-absent windows skipped",
