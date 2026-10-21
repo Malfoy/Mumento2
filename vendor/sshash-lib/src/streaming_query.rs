@@ -326,6 +326,18 @@ where
             self.try_extend(dict);
         }
 
+        // A reverse extension can reach a self-reverse-complement k-mer.
+        // Point lookup breaks that orientation tie forward; rebuild the
+        // extension state when changing direction, and discard the anchored
+        // singleton shortcut across the tie. Odd K has no such k-mers.
+        if K % 2 == 0 && self.result.is_found() && self.kmer == self.kmer_rc {
+            if self.result.kmer_orientation < 0 {
+                self.result.kmer_orientation = 1;
+                self.begin_extension();
+            }
+            self.last_seed_positive = false;
+        }
+
         // 4. Update state
         self.start = false;
 
@@ -646,6 +658,51 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn even_k_palindrome_ties_match_point_queries_and_resume_extension() {
+        use crate::packed_seq::{PackedSeqVec, Seq, SeqVec};
+        use crate::{BuildConfiguration, DictionaryBuilder};
+        let dna = b"CCGATATGGA";
+        let mut config = BuildConfiguration::new(4, 2).unwrap();
+        config.verbose = false;
+        config.num_threads = 1;
+        let dict = DictionaryBuilder::new(config)
+            .unwrap()
+            .build_from_sequences(vec![String::from_utf8(dna.to_vec()).unwrap()])
+            .unwrap();
+        for text in [dna.to_vec(), b"TCCATATCGG".to_vec()] {
+            let packed = PackedSeqVec::from_ascii(&text);
+            let mut minis = crate::minimizer::SimdMinimizers::default();
+            minis.compute_packed(packed.as_slice(), 4, 2);
+            let mut ascii = dict.create_streaming_query::<4>();
+            let mut stream = dict.create_streaming_query::<4>();
+            let mut palindrome = false;
+            for pos in 0..=text.len() - 4 {
+                let key = Kmer::<4>::from_ascii_unchecked(&text[pos..pos + 4]);
+                let point = dict.query::<4>(&key);
+                let run = minis.starts.partition_point(|&p| p as usize <= pos) - 1;
+                let selected = minis.positions[run] as usize;
+                let mini = MinimizerInfo::new(minis.values[run], selected as u64, selected - pos);
+                for result in [
+                    ascii.lookup(&text[pos..pos + 4]),
+                    stream
+                        .lookup_packed_with_minimizer(packed.as_slice().slice(pos..pos + 4), mini),
+                ] {
+                    assert!(result.is_found());
+                    assert_eq!(
+                        (result.kmer_id, result.kmer_orientation),
+                        (point.kmer_id, point.kmer_orientation)
+                    );
+                }
+                if key == key.reverse_complement() {
+                    palindrome = true;
+                    assert_eq!(point.kmer_orientation, 1);
+                }
+            }
+            assert!(palindrome);
+        }
+    }
 
     #[test]
     fn packed_jumps_revisit_identical_minimizers_without_position_shortcuts() {

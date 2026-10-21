@@ -7,6 +7,37 @@ pub(super) struct CompactProtoIndex {
     pub(super) dictionary: Dictionary,
 }
 
+pub(super) fn minimizer_length(k: usize) -> usize {
+    if k == 63 { 31 } else { (k / 2).clamp(1, 23) }
+}
+
+pub(super) fn build_dictionary(
+    k: usize,
+    threads: usize,
+    parent: Option<&Path>,
+    strings: Vec<String>,
+) -> io::Result<Dictionary> {
+    let scratch = if let Some(parent) = parent {
+        std::fs::create_dir_all(parent)?;
+        tempfile::Builder::new()
+            .prefix("sshash-")
+            .tempdir_in(parent)?
+    } else {
+        tempfile::Builder::new().prefix("sshash-").tempdir()?
+    };
+    let m = minimizer_length(k);
+    let mut config = BuildConfiguration::new(k, m).map_err(invalid)?;
+    config.num_threads = threads;
+    config.ram_limit_gib = 4;
+    config.tmp_dirname = scratch.path().to_path_buf();
+    config.verbose = false;
+    eprintln!("[sshash_parameters]\tk={k}\tm={m}");
+    DictionaryBuilder::new(config)
+        .map_err(invalid)?
+        .build_from_sequences(strings)
+        .map_err(io::Error::other)
+}
+
 /// Bounded SIMD batches retain the graph dictionary's exact lookup and allow
 /// proven alignment skips without computing a minimizer separately per seed.
 pub(super) struct CompactQuery<'a, const K: usize>
@@ -117,26 +148,7 @@ impl FragmentIndex {
             strings.push(String::from_utf8(dna).map_err(io::Error::other)?);
         }
         drop(source);
-        let scratch = if let Some(parent) = parent {
-            std::fs::create_dir_all(parent)?;
-            tempfile::Builder::new()
-                .prefix("sshash-")
-                .tempdir_in(parent)?
-        } else {
-            tempfile::Builder::new().prefix("sshash-").tempdir()?
-        };
-        // Longer minimizers reduce failed dictionary work at the measured k=63.
-        // Preserve the existing smaller-k configuration.
-        let minimizer = if k == 63 { 31 } else { 23.min(k - 1) };
-        let mut config = BuildConfiguration::new(k, minimizer).map_err(invalid)?;
-        config.num_threads = options.threads;
-        config.ram_limit_gib = 4;
-        config.tmp_dirname = scratch.path().to_path_buf();
-        config.verbose = false;
-        let dictionary = DictionaryBuilder::new(config)
-            .map_err(invalid)?
-            .build_from_sequences(strings)
-            .map_err(io::Error::other)?;
+        let dictionary = build_dictionary(k, options.threads, parent, strings)?;
         if dictionary.num_strings() as usize != patterns.len() {
             return Err(invalid("SSHash changed proto-MUM record order/count"));
         }
@@ -161,6 +173,7 @@ impl FragmentIndex {
             unique_runs: Vec::new(),
             probe: Vec::new(),
             compact: Some(CompactProtoIndex { dictionary }),
+            posting_dictionary: None,
         })
     }
 }
@@ -282,6 +295,22 @@ impl CompactProtoIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_k_reduces_minimizer_length_without_changing_dictionary() {
+        for k in 3..=64 {
+            let m = minimizer_length(k);
+            assert!((1..k).contains(&m));
+            assert!(m <= 31);
+            if k < 31 {
+                assert!(m <= k / 2);
+            }
+        }
+        assert_eq!(minimizer_length(3), 1);
+        assert_eq!(minimizer_length(7), 3);
+        assert_eq!(minimizer_length(21), 10);
+        assert_eq!(minimizer_length(63), 31);
+    }
 
     fn batch_matches_point<const K: usize>() -> io::Result<()>
     where

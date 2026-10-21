@@ -20,6 +20,37 @@ def rc(sequence):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_small_k_keeps_sshash_for_all_threshold_and_incremental_modes(self):
+        from oracle import expected_matches, verify_output
+        rng = random.Random(210641)
+        shared = ''.join(rng.choices('ACGT', k=130))
+        private = ''.join(rng.choices('ACGT', k=110))
+        for k in [4, 7, 21, 64]:
+            for forward in [False, True]:
+                with self.subTest(k=k, forward=forward), tempfile.TemporaryDirectory(prefix='mumento2-small-k-sshash-') as directory:
+                    directory = Path(directory)
+                    genomes = [[shared, 'CCGATATGGA'],
+                               [shared if forward else rc(shared), private], [private]]
+                    inputs = self.write_genomes(directory, genomes, 'g')
+                    mode = ['--forward-only'] if forward else []
+                    m = min(23, max(1, k // 2))
+
+                    def check(name, supplied, extra, documents, minimum):
+                        _, run = self.run_tool(directory, name, supplied, *extra, *mode)
+                        self.assertIn(f'[sshash_parameters]\tk={k}\tm={m}', run.stderr)
+                        self.assertIn('[proto_dictionary]\tSSHash Rust', run.stderr)
+                        text = zstd.decompress((directory/name).read_bytes()).decode()
+                        expected = expected_matches(documents, k, minimum, forward)
+                        verify_output(self, text, documents, k, minimum, forward, expected)
+                        return set(text.splitlines()[2:])
+
+                    check('all.zst', inputs[:2], ['-k', str(k)], genomes[:2], None)
+                    state = directory/'state'
+                    check('initial.zst', inputs[:2], ['-k', str(k), '-N', '2', '--state', str(state)], genomes[:2], 2)
+                    updated = check('updated.zst', inputs[2:], ['--update', str(state)], genomes, 2)
+                    fresh = check('fresh.zst', inputs, ['-k', str(k), '-N', '2'], genomes, 2)
+                    self.assertEqual(updated, fresh)
+
     def test_repeated_prefix_skip_preserves_unique_mums_crossing_its_end(self):
         from oracle import expected_matches, verify_output
         rng = random.Random(170035)

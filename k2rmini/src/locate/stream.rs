@@ -2,6 +2,7 @@
 //! computed together. Reduction never reads genome bases or compressed caches.
 use super::*;
 mod compact;
+mod postings;
 mod restriction;
 mod shared;
 pub use shared::{StateInfo, locate_shared_mums, read_state_info};
@@ -151,6 +152,8 @@ struct SeedPosting {
 struct FragmentIndex {
     options: LocateOptions,
     patterns: Vec<PackedContig>,
+    // Compatibility index only outside SSHash's supported k=3..64 range.
+    // Supported k always uses compact or posting_dictionary, including low k.
     heads: FxHashMap<u32, u32>,
     postings: Vec<SeedPosting>,
     posting_hashes: Vec<u32>,
@@ -159,6 +162,7 @@ struct FragmentIndex {
     unique_runs: Vec<u32>,
     probe: Vec<u64>,
     compact: Option<compact::CompactProtoIndex>,
+    posting_dictionary: Option<postings::PostingDictionary>,
 }
 
 impl FragmentIndex {
@@ -174,6 +178,7 @@ impl FragmentIndex {
             unique_runs: Vec::new(),
             probe: Vec::new(),
             compact: None,
+            posting_dictionary: None,
         };
         this.extend(source)?;
         Ok(this)
@@ -200,16 +205,20 @@ impl FragmentIndex {
                     &packed.forward
                 };
                 hashes.clear();
-                NtHasher::<false>::new(k)
-                    .hash_kmers_simd(seq.as_slice(), 1)
-                    .collect_into(&mut hashes);
-                for (pos, &hash) in hashes.iter().enumerate() {
+                if !(3..=64).contains(&k) {
+                    NtHasher::<false>::new(k)
+                        .hash_kmers_simd(seq.as_slice(), 1)
+                        .collect_into(&mut hashes);
+                }
+                for pos in 0..pattern.len - k + 1 {
                     u32::try_from(self.postings.len())
                         .map_err(|_| invalid("too many proto positions"))?;
                     let offset = if reverse { pattern.len - pos - k } else { pos };
                     let offset = u32::try_from(offset)
                         .map_err(|_| invalid("proto-MUM exceeds position range"))?;
-                    self.posting_hashes.push(hash);
+                    if !(3..=64).contains(&k) {
+                        self.posting_hashes.push(hashes[pos]);
+                    }
                     self.postings.push(SeedPosting {
                         pattern: id,
                         offset,
@@ -228,6 +237,9 @@ impl FragmentIndex {
         self.active = vec![u64::MAX; count.div_ceil(64)];
         if count % 64 != 0 {
             *self.active.last_mut().unwrap() = (1u64 << (count % 64)) - 1;
+        }
+        if (3..=64).contains(&k) {
+            self.posting_dictionary = postings::PostingDictionary::build(self)?;
         }
         self.rebuild();
         Ok(())
@@ -262,6 +274,34 @@ impl FragmentIndex {
         if self.compact.is_some() {
             return;
         }
+        if (3..=64).contains(&self.options.k) && self.postings.is_empty() {
+            self.heads.clear();
+            self.unique_runs.clear();
+            self.probe.clear();
+            return;
+        }
+        if let Some(dictionary) = &mut self.posting_dictionary {
+            dictionary.heads.fill(NO_POSTING);
+            for (id, posting) in self.postings.iter_mut().enumerate() {
+                let bit = self.position_offsets[posting.pattern as usize] + posting.offset as usize;
+                posting.next = NO_POSTING;
+                if self.active[bit / 64] & (1u64 << (bit % 64)) != 0 {
+                    let head = &mut dictionary.heads[dictionary.slots[id] as usize];
+                    posting.next = *head;
+                    *head = id as u32;
+                }
+            }
+            self.heads.clear();
+            self.probe.clear();
+            self.unique_runs = vec![0; self.postings.len()];
+            for &head in &dictionary.heads {
+                if head != NO_POSTING && self.postings[head as usize].next == NO_POSTING {
+                    self.unique_runs[head as usize] = 1;
+                }
+            }
+            self.extend_unique_runs();
+            return;
+        }
         self.heads = FxHashMap::with_capacity_and_hasher(
             self.active_positions()
                 .saturating_mul(if self.options.forward_only { 1 } else { 2 }),
@@ -290,6 +330,16 @@ impl FragmentIndex {
                 self.unique_runs[head as usize] = 1;
             }
         }
+        self.extend_unique_runs();
+        let bits = (self.heads.len().max(64) * 16).next_power_of_two();
+        self.probe = vec![0; bits / 64];
+        for &hash in self.heads.keys() {
+            let bit = hash as usize & (bits - 1);
+            self.probe[bit / 64] |= 1 << (bit % 64);
+        }
+    }
+
+    fn extend_unique_runs(&mut self) {
         for i in (0..self.postings.len().saturating_sub(1)).rev() {
             if self.unique_runs[i] != 0
                 && self.postings[i].pattern == self.postings[i + 1].pattern
@@ -297,12 +347,6 @@ impl FragmentIndex {
             {
                 self.unique_runs[i] += self.unique_runs[i + 1];
             }
-        }
-        let bits = (self.heads.len().max(64) * 16).next_power_of_two();
-        self.probe = vec![0; bits / 64];
-        for &hash in self.heads.keys() {
-            let bit = hash as usize & (bits - 1);
-            self.probe[bit / 64] |= 1 << (bit % 64);
         }
     }
 
@@ -319,6 +363,9 @@ impl FragmentIndex {
     ) -> io::Result<()> {
         if let Some(compact) = &self.compact {
             return compact.scan(self, query, contig, origin, accept);
+        }
+        if let Some(dictionary) = &self.posting_dictionary {
+            return dictionary.scan(self, query, contig, origin, accept);
         }
         if self.heads.is_empty() {
             return Ok(());
@@ -452,6 +499,8 @@ impl FragmentIndex {
     fn seed_count(&self) -> usize {
         if self.compact.is_some() {
             *self.position_offsets.last().unwrap()
+        } else if let Some(dictionary) = &self.posting_dictionary {
+            dictionary.heads.len() / 2
         } else {
             self.heads.len()
         }
@@ -2216,7 +2265,17 @@ mod tests {
                     }
                     assert!(index.retain_present(&keep));
                     assert!(index.active_positions() < before);
-                    for &head in index.heads.values() {
+                    let heads: Vec<_> = if let Some(dictionary) = &index.posting_dictionary {
+                        dictionary
+                            .heads
+                            .iter()
+                            .copied()
+                            .filter(|&h| h != NO_POSTING)
+                            .collect()
+                    } else {
+                        index.heads.values().copied().collect()
+                    };
+                    for head in heads {
                         let mut next = head;
                         while next != NO_POSTING {
                             let p = &index.postings[next as usize];
@@ -2560,7 +2619,7 @@ mod tests {
     }
 
     #[test]
-    fn colliding_seed_hash_is_checked_against_exact_dna() -> io::Result<()> {
+    fn incorrect_seed_posting_is_checked_against_exact_dna() -> io::Result<()> {
         let mut source = ProtoIndex {
             options: LocateOptions {
                 k: 3,
@@ -2576,8 +2635,12 @@ mod tests {
         source.add_pattern(b"TTTAAA")?;
         let mut index = FragmentIndex::new(source)?;
         let sequence = PackedContig::new(b"ACGATC", 3);
-        let hash = NtHasher::<false>::new(3).hash_seq(sequence.forward.slice(0..3));
-        let next = index.heads[&hash];
+        let dictionary = index.posting_dictionary.as_mut().unwrap();
+        let key = sshash_lib::Kmer::<3>::from_ascii_unchecked(b"ACG");
+        let found = dictionary.compact.dictionary.query::<3>(&key);
+        assert!(found.is_found());
+        let slot = found.kmer_id as usize * 2 + usize::from(found.kmer_orientation < 0);
+        let next = dictionary.heads[slot];
         let posting = index.postings.len() as u32;
         index.postings.push(SeedPosting {
             pattern: 1,
@@ -2585,7 +2648,7 @@ mod tests {
             next,
             reverse: false,
         });
-        index.heads.insert(hash, posting);
+        dictionary.heads[slot] = posting;
         let mut hits = Vec::new();
         index.scan(&sequence, 0, 0, |fragment| {
             hits.push(fragment);
