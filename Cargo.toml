@@ -10,6 +10,7 @@ clap = { version = "4.6", features = ["derive"] }
 k2rmini = { package = "K2Rmini", path = "k2rmini" }
 tempfile = "3.27"
 
+# Final / PGO / frozen benchmark binaries (slow to compile).
 [profile.release]
 opt-level = 3
 lto = "fat"
@@ -17,4 +18,14 @@ codegen-units = 1
 panic = "abort"
 overflow-checks = false
 debug-assertions = false
+
+# Alias kept for scripts that name the max-perf profile explicitly.
+[profile.maxperf]
+inherits = "release"
+
+# Day-to-day optimized builds: thin LTO + parallel CGUs (several× faster compile).
+[profile.release-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
 

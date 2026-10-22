@@ -114,14 +114,59 @@ struct ReferenceSeed {
 
 // Query-only reference coordinate directory. Every stored seed comes from an
 // original exact reference fragment; SSHash remains the fallback dictionary.
+// Dense Vec under the 512 MiB cap; otherwise a sparse map covers only fragment
+// coordinates so whole-genome references still get prefetch.
+enum SeedStore {
+    Dense(Vec<u32>),
+    Sparse(std::collections::HashMap<u64, u32>),
+}
+
 struct ReferenceSeeds {
-    entries: Vec<u32>,
+    store: SeedStore,
     offset_bits: u32,
     offset_mask: u32,
 }
 impl ReferenceSeeds {
     const EMPTY: u32 = u32::MAX;
     const UNKNOWN: u32 = u32::MAX - 1;
+    /// Soft cap for sparse maps (~512 MiB at ~16 B/entry including HashMap overhead).
+    const SPARSE_MAX_ENTRIES: usize = (512 * 1024 * 1024) / 16;
+
+    fn pack_value(id: usize, offset: usize, reverse: bool, offset_bits: u32, offset_mask: u32) -> u32 {
+        if offset > offset_mask as usize {
+            Self::UNKNOWN
+        } else {
+            let packed =
+                (((id as u32) << offset_bits) | offset as u32) << 1 | u32::from(reverse);
+            if packed >= Self::UNKNOWN {
+                Self::UNKNOWN
+            } else {
+                packed
+            }
+        }
+    }
+
+    fn insert_dense(entries: &mut [u32], physical: u64, value: u32) -> Option<()> {
+        let entry = entries.get_mut(usize::try_from(physical).ok()?)?;
+        if *entry == Self::EMPTY {
+            *entry = value;
+        } else if *entry != value {
+            *entry = Self::UNKNOWN;
+        }
+        Some(())
+    }
+
+    fn insert_sparse(map: &mut std::collections::HashMap<u64, u32>, physical: u64, value: u32) {
+        match map.get(&physical).copied() {
+            None => {
+                map.insert(physical, value);
+            }
+            Some(old) if old != value => {
+                map.insert(physical, Self::UNKNOWN);
+            }
+            Some(_) => {}
+        }
+    }
 
     fn build(index: &FragmentIndex, reference: &Reference) -> Option<Self> {
         let count = index.patterns.len();
@@ -135,43 +180,66 @@ impl ReferenceSeeds {
         let offset_bits = 31 - id_bits;
         let offset_mask = (1u32 << offset_bits) - 1;
         let last = reference.meta.contigs.last()?;
-        let bases = usize::try_from(last.start.checked_add(last.len as u64)?).ok()?;
-        if bases > (512 * 1024 * 1024) / 4 {
-            return None;
+        let dense_ok = last
+            .start
+            .checked_add(last.len as u64)
+            .and_then(|end| usize::try_from(end).ok())
+            .is_some_and(|bases| bases <= (512 * 1024 * 1024) / 4);
+
+        if dense_ok {
+            let bases = usize::try_from(last.start + last.len as u64).ok()?;
+            let mut entries = Vec::new();
+            entries.try_reserve_exact(bases).ok()?;
+            entries.resize(bases, Self::EMPTY);
+            for (id, fragments) in reference.fragments.iter().enumerate() {
+                for &fragment in fragments {
+                    if fragment.end < fragment.begin
+                        || fragment.end - fragment.begin < index.options.k
+                    {
+                        continue;
+                    }
+                    for offset in fragment.begin..=fragment.end - index.options.k {
+                        let hit = seed_at(fragment, offset, index.options.k);
+                        let value =
+                            Self::pack_value(id, offset, hit.reverse, offset_bits, offset_mask);
+                        Self::insert_dense(&mut entries, hit.start, value)?;
+                    }
+                }
+            }
+            return Some(Self {
+                store: SeedStore::Dense(entries),
+                offset_bits,
+                offset_mask,
+            });
         }
-        let mut entries = Vec::new();
-        entries.try_reserve_exact(bases).ok()?;
-        entries.resize(bases, Self::EMPTY);
+
+        let mut map = std::collections::HashMap::new();
         for (id, fragments) in reference.fragments.iter().enumerate() {
             for &fragment in fragments {
                 if fragment.end < fragment.begin || fragment.end - fragment.begin < index.options.k
                 {
                     continue;
                 }
+                let seeds = fragment.end - fragment.begin - index.options.k + 1;
+                if map.len().saturating_add(seeds) > Self::SPARSE_MAX_ENTRIES {
+                    return None;
+                }
                 for offset in fragment.begin..=fragment.end - index.options.k {
                     let hit = seed_at(fragment, offset, index.options.k);
-                    let value = if offset > offset_mask as usize {
-                        Self::UNKNOWN
-                    } else {
-                        let packed = (((id as u32) << offset_bits) | offset as u32) << 1
-                            | u32::from(hit.reverse);
-                        if packed >= Self::UNKNOWN {
-                            Self::UNKNOWN
-                        } else {
-                            packed
-                        }
-                    };
-                    let entry = entries.get_mut(usize::try_from(hit.start).ok()?)?;
-                    if *entry == Self::EMPTY {
-                        *entry = value;
-                    } else if *entry != value {
-                        *entry = Self::UNKNOWN;
+                    let value =
+                        Self::pack_value(id, offset, hit.reverse, offset_bits, offset_mask);
+                    Self::insert_sparse(&mut map, hit.start, value);
+                    if map.len() > Self::SPARSE_MAX_ENTRIES {
+                        return None;
                     }
                 }
             }
         }
+        if map.is_empty() {
+            return None;
+        }
         Some(Self {
-            entries,
+            store: SeedStore::Sparse(map),
             offset_bits,
             offset_mask,
         })
@@ -179,7 +247,10 @@ impl ReferenceSeeds {
 
     #[inline]
     fn lookup(&self, index: &FragmentIndex, physical: u64, reverse: bool) -> Option<ReferenceSeed> {
-        let value = *self.entries.get(usize::try_from(physical).ok()?)?;
+        let value = match &self.store {
+            SeedStore::Dense(entries) => *entries.get(usize::try_from(physical).ok()?)?,
+            SeedStore::Sparse(map) => *map.get(&physical)?,
+        };
         if value >= Self::UNKNOWN {
             return None;
         }
@@ -195,6 +266,14 @@ impl ReferenceSeeds {
             offset: offset as u32,
             reverse: (value & 1 != 0) != reverse,
         })
+    }
+
+    #[cfg(test)]
+    fn dense_entry(&self, physical: usize) -> Option<u32> {
+        match &self.store {
+            SeedStore::Dense(entries) => entries.get(physical).copied(),
+            SeedStore::Sparse(_) => None,
+        }
     }
 }
 
@@ -969,9 +1048,10 @@ impl RestrictionIndex {
         let reference_seeds = ReferenceSeeds::build(index, reference);
         eprintln!(
             "[reference_seed_directory]\t{} bytes",
-            reference_seeds
-                .as_ref()
-                .map_or(0, |map| map.entries.len() * 4)
+            reference_seeds.as_ref().map_or(0, |map| match &map.store {
+                SeedStore::Dense(entries) => entries.len() * 4,
+                SeedStore::Sparse(h) => h.capacity() * 16,
+            })
         );
         let leaf_rank = LeafRank::build(&leaf_occurrences);
         eprintln!(
@@ -1494,6 +1574,7 @@ mod tests {
                     min_length: K,
 
                     m: K.min(19),
+                    sshash_m: None,
                     threads: 2,
                     chunk_bases: 127,
                     forward_only: false,
@@ -1559,9 +1640,11 @@ mod tests {
             }
             assert!(checked.iter().all(|&n| n > 5000));
             assert!(map.lookup(&index, u64::MAX, false).is_none());
-            // An unsupported coordinate space disables the accelerator before allocation.
+            // Wide contig starts disable the dense array; sparse still indexes
+            // the covered fragment coordinates.
             reference.meta.contigs.last_mut().unwrap().start += 1u64 << 40;
-            assert!(ReferenceSeeds::build(&index, &reference).is_none());
+            let wide = ReferenceSeeds::build(&index, &reference).expect("sparse directory");
+            assert!(matches!(wide.store, SeedStore::Sparse(_)));
             Ok(())
         }
         check::<31>()?;
@@ -1579,6 +1662,7 @@ mod tests {
                 min_length: 7,
 
                 m: 5,
+                sshash_m: None,
                 threads: 1,
                 chunk_bases: 127,
                 forward_only: false,
@@ -1609,9 +1693,9 @@ mod tests {
             vec![fragment(1, 0, false), fragment(1, 0, false)],
         ];
         let map = ReferenceSeeds::build(&index, &reference).unwrap();
-        assert_eq!(map.entries[0], ReferenceSeeds::UNKNOWN);
+        assert_eq!(map.dense_entry(0), Some(ReferenceSeeds::UNKNOWN));
         assert!(map.lookup(&index, 0, false).is_none());
-        assert_eq!(map.entries[1], ReferenceSeeds::EMPTY);
+        assert_eq!(map.dense_entry(1), Some(ReferenceSeeds::EMPTY));
         assert!(map.lookup(&index, 1, false).is_none());
         // Repeated identical entries are usable; a different strand is ambiguous.
         reference.fragments = vec![vec![fragment(0, 0, false), fragment(0, 0, false)], vec![]];
@@ -1622,7 +1706,7 @@ mod tests {
         reference.fragments[0].push(fragment(0, 0, true));
         reference.fragments[0].push(fragment(0, 0, false));
         let map = ReferenceSeeds::build(&index, &reference).unwrap();
-        assert_eq!(map.entries[0], ReferenceSeeds::UNKNOWN);
+        assert_eq!(map.dense_entry(0), Some(ReferenceSeeds::UNKNOWN));
         assert!(map.lookup(&index, 0, false).is_none());
         Ok(())
     }
@@ -1864,6 +1948,7 @@ mod tests {
                     k,
                     min_length: k,
                     m: k.min(19),
+                    sshash_m: None,
                     threads: 2,
                     chunk_bases: 127,
                     forward_only: false,
@@ -2348,6 +2433,7 @@ mod tests {
                     k,
                     min_length: k,
                     m: k.min(19),
+                    sshash_m: None,
                     threads: 2,
                     chunk_bases: 127,
                     forward_only: false,

@@ -81,6 +81,7 @@ fn case_options(c: &Case) -> LocateOptions {
         k: c.k,
         min_length: case_min_length(c),
         m: c.m.unwrap_or(c.k.min(21)),
+        sshash_m: None,
         threads: c.threads,
         chunk_bases: c.chunk_bases,
         forward_only: c.forward_only,

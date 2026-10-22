@@ -40,6 +40,8 @@ pub struct LocateOptions {
     /// Reported MUM length floor; must be >= k (seed length).
     pub min_length: usize,
     pub m: usize,
+    /// Override SSHash proto-dictionary minimizer length. `None` = adaptive from k.
+    pub sshash_m: Option<usize>,
     pub threads: usize,
     pub chunk_bases: usize,
     pub forward_only: bool,
@@ -207,6 +209,7 @@ mod tests {
                 min_length: 3,
 
                 m: 2,
+                sshash_m: None,
                 threads: 3,
                 chunk_bases,
                 forward_only,
@@ -228,6 +231,7 @@ mod tests {
             k: 21,
             min_length: 21,
             m: 15,
+            sshash_m: None,
             threads: 1,
             chunk_bases: 64,
             forward_only: false,

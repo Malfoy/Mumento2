@@ -7,6 +7,7 @@ fn options(forward_only: bool) -> LocateOptions {
         min_length: 3,
 
         m: 2,
+        sshash_m: None,
         threads: 3,
         chunk_bases: 2,
         forward_only,

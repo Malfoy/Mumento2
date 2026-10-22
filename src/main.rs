@@ -61,6 +61,11 @@ struct Args {
     /// GGCAT's suggested scratch-memory budget in GiB
     #[arg(short = 'm', long, default_value_t = 2.0)]
     memory: f64,
+    /// SSHash proto-dictionary minimizer length. Default: adaptive from seed k
+    /// (k=63 → 31; k≤31 → max(⌊2k/3⌋, ⌊k/2⌋) capped at 23; else ⌊k/2⌋).
+    /// Short `-M` (capital); lowercase `-m` remains GGCAT memory GiB.
+    #[arg(short = 'M', long = "sshash-m", value_name = "LEN")]
+    sshash_m: Option<usize>,
     /// Modified GGCAT executable (default: the local build)
     #[arg(long)]
     ggcat: Option<PathBuf>,
@@ -123,11 +128,24 @@ fn resolve_minimum_genomes(raw: i64, total: usize) -> Result<usize> {
 // A sequence present in N of G genomes must occur in at least N-(G-S) of
 // any S seed genomes. This preserves every qualifying k-mer, including repeats.
 // Reusable union states must retain all new genomes, even below the threshold.
+fn default_seed_genome_cap(k: usize) -> usize {
+    // Smaller k ⇒ denser shared protos; a tighter seed prefix rejects more
+    // private seed-cohort variation earlier. Large k keeps the historical 16.
+    if k <= 31 {
+        8
+    } else if k <= 47 {
+        12
+    } else {
+        16
+    }
+}
+
 fn seed_plan(
     genomes: usize,
     minimum: Option<usize>,
     reusable: bool,
     requested: Option<usize>,
+    k: usize,
 ) -> Result<(usize, usize)> {
     // Every strict all-genome match occurs in the first input. A complete
     // reference graph therefore contains every qualifying seed. A bounded
@@ -136,7 +154,7 @@ fn seed_plan(
     // subset thresholds and reusable unions need broader candidate coverage.
     let seeds = requested.unwrap_or_else(|| {
         if !reusable && minimum.unwrap_or(genomes) == genomes {
-            genomes.min(16)
+            genomes.min(default_seed_genome_cap(k))
         } else {
             genomes
         }
@@ -236,6 +254,11 @@ fn main() -> Result<()> {
     let threads = args
         .threads
         .unwrap_or_else(|| thread::available_parallelism().map_or(1, usize::from));
+    if let Some(m) = args.sshash_m {
+        ensure!(m >= 1, "--sshash-m must be >= 1");
+        ensure!(m < k, "--sshash-m must be < k ({k})");
+        ensure!(m <= 31, "--sshash-m must be <= 31");
+    }
     let locate_options = LocateOptions {
         k,
         min_length,
@@ -243,6 +266,7 @@ fn main() -> Result<()> {
             .locate_minimizer_length
             .or_else(|| saved.as_ref().map(|s| s.m))
             .unwrap_or(k.min(21)),
+        sshash_m: args.sshash_m,
         threads,
         chunk_bases: args.chunk_bases,
         forward_only: args.forward_only || saved.as_ref().is_some_and(|s| s.forward_only),
@@ -289,6 +313,7 @@ fn main() -> Result<()> {
         minimum_genomes,
         reusable,
         args.seed_genomes,
+        k,
     )?;
     let scratch = if let Some(parent) = &args.temp_dir {
         std::fs::create_dir_all(parent)?;
@@ -439,14 +464,16 @@ mod tests {
     fn automatic_graph_seed_plan_preserves_threshold_and_reusable_coverage() {
         for g in 1..=100 {
             let seeds = g.min(16);
-            assert_eq!(seed_plan(g, None, false, None).unwrap(), (seeds, seeds));
-            assert_eq!(seed_plan(g, Some(g), false, None).unwrap(), (seeds, seeds));
-            assert_eq!(seed_plan(g, None, false, Some(g)).unwrap(), (g, g));
-            assert_eq!(seed_plan(g, None, true, None).unwrap(), (g, 1));
+            assert_eq!(seed_plan(g, None, false, None, 63).unwrap(), (seeds, seeds));
+            assert_eq!(seed_plan(g, Some(g), false, None, 63).unwrap(), (seeds, seeds));
+            assert_eq!(seed_plan(g, None, false, Some(g), 63).unwrap(), (g, g));
+            assert_eq!(seed_plan(g, None, true, None, 63).unwrap(), (g, 1));
             for n in 1..g {
-                assert_eq!(seed_plan(g, Some(n), false, None).unwrap(), (g, n));
-                assert_eq!(seed_plan(g, Some(n), true, None).unwrap(), (g, 1));
+                assert_eq!(seed_plan(g, Some(n), false, None, 63).unwrap(), (g, n));
+                assert_eq!(seed_plan(g, Some(n), true, None, 63).unwrap(), (g, 1));
             }
+            let small = g.min(8);
+            assert_eq!(seed_plan(g, None, false, None, 21).unwrap(), (small, small));
         }
     }
     #[test]
@@ -454,7 +481,7 @@ mod tests {
         for g in 1usize..=10 {
             for n in 1..=g {
                 for s in g - n + 1..=g {
-                    let (_, q) = seed_plan(g, Some(n), false, Some(s)).unwrap();
+                    let (_, q) = seed_plan(g, Some(n), false, Some(s), 63).unwrap();
                     for support in 0usize..1 << g {
                         if support.count_ones() as usize >= n {
                             assert!((support & ((1 << s) - 1)).count_ones() as usize >= q);
@@ -469,7 +496,7 @@ mod tests {
         for g in 2..=10 {
             for n in 1..g {
                 for s in 1..=g - n {
-                    assert!(seed_plan(g, Some(n), false, Some(s)).is_err());
+                    assert!(seed_plan(g, Some(n), false, Some(s), 63).is_err());
                 }
             }
         }
@@ -477,18 +504,18 @@ mod tests {
     #[test]
     fn all_genome_matches_allow_any_nonempty_seed_subset() {
         for s in 1..=100 {
-            assert_eq!(seed_plan(100, None, false, Some(s)).unwrap(), (s, s));
+            assert_eq!(seed_plan(100, None, false, Some(s), 63).unwrap(), (s, s));
         }
     }
     #[test]
     fn reusable_states_cannot_drop_below_threshold_candidates() {
-        assert!(seed_plan(10, Some(2), true, Some(9)).is_err());
-        assert_eq!(seed_plan(10, Some(2), true, None).unwrap(), (10, 1));
+        assert!(seed_plan(10, Some(2), true, Some(9), 63).is_err());
+        assert_eq!(seed_plan(10, Some(2), true, None, 63).unwrap(), (10, 1));
     }
     #[test]
     fn zero_and_oversized_subsets_are_rejected() {
         for s in [0, 11] {
-            assert!(seed_plan(10, None, false, Some(s)).is_err());
+            assert!(seed_plan(10, None, false, Some(s), 63).is_err());
         }
     }
 
