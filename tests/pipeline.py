@@ -34,7 +34,14 @@ class PipelineTests(unittest.TestCase):
                                [shared if forward else rc(shared), private], [private]]
                     inputs = self.write_genomes(directory, genomes, 'g')
                     mode = ['--forward-only'] if forward else []
-                    m = min(23, max(1, k // 2))
+                    def sshash_m(k):
+                        if k == 63:
+                            return 31
+                        hi = min(23, max(1, k - 1))
+                        target = max((k * 2) // 3, k // 2) if k <= 31 else k // 2
+                        return max(1, min(target, hi))
+
+                    m = sshash_m(k)
 
                     def check(name, supplied, extra, documents, minimum):
                         _, run = self.run_tool(directory, name, supplied, *extra, *mode)

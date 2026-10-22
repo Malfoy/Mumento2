@@ -42,6 +42,7 @@ fn main() -> io::Result<()> {
         k: args.k,
         min_length: args.min_match_len.unwrap_or(args.k),
         m: args.m.unwrap_or(args.k.min(21)),
+        sshash_m: None,
         threads: args
             .threads
             .unwrap_or_else(|| thread::available_parallelism().map_or(1, usize::from)),

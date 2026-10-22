@@ -35,6 +35,15 @@ panic = "abort"
 overflow-checks = false
 debug-assertions = false
 
-[profile.dev]
-opt-level = 1
+[profile.maxperf]
+inherits = "release"
+
+[profile.release-fast]
+inherits = "release"
 lto = "thin"
+codegen-units = 16
+
+# Fast incremental test/debug rebuilds (was thin-LTO + opt-level=1).
+[profile.dev]
+opt-level = 0
+lto = "off"

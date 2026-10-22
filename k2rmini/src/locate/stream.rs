@@ -1639,15 +1639,43 @@ fn locate_impl(
     } else {
         FragmentIndex::new(source)?
     };
-    // The compact restriction scanner uses immutable reference occurrence
-    // evidence, not the mutable hash-posting pruning table. Its final reduction
-    // still requires exact contexts from every genome. Avoid collecting unused
-    // presence masks so verified unique alignments can skip across proto records.
-    let first_batch = if index.compact.is_some() {
+    // Compact/restriction uses immutable occurrence evidence. Progressive
+    // pruning still helps at small k by clearing `active` bits after early
+    // genomes (scan_k skips inactive seeds). Keep pruning off for large k so
+    // unique-alignment / prefetch skips stay maximally aggressive (present=None).
+    // Override: MUMENTO2_COMPACT_PRUNE=0|1.
+    // Off by default: presence-tracking disables unique-alignment / prefetch
+    // skips and was a net wall regression on chr19×4 and ×8. Keep as an
+    // experiment knob for large collections via MUMENTO2_COMPACT_PRUNE=1.
+    let compact_prune = if index.compact.is_some() && graph {
+        matches!(
+            std::env::var("MUMENTO2_COMPACT_PRUNE").as_deref(),
+            Ok("1") | Ok("true") | Ok("on")
+        )
+    } else {
+        false
+    };
+    // Hash-path default first_batch=256 never tracks presence when fewer than
+    // 256 non-reference genomes remain — pruning would be a no-op on small
+    // collections. Split so at least one later genome can see cleared bits.
+    let first_batch = if index.compact.is_some() && !compact_prune {
         0
+    } else if compact_prune {
+        let queries = inputs.len().saturating_sub(1);
+        if queries <= 1 {
+            0
+        } else {
+            first_batch.min(queries.saturating_sub(1)).max(1)
+        }
     } else {
         first_batch
     };
+    if compact_prune {
+        eprintln!(
+            "[compact_prune]\tenabled\tk={}\tfirst_batch={}",
+            index.options.k, first_batch
+        );
+    }
     let mut timings = LocateTimings {
         index: started.elapsed().as_secs_f64(),
         ..Default::default()
@@ -2188,6 +2216,7 @@ mod tests {
             min_length: 31,
 
             m: 15,
+            sshash_m: None,
             threads: 4,
             chunk_bases: 127,
             forward_only: false,
@@ -2330,6 +2359,7 @@ mod tests {
                             k,
                             min_length: k,
                             m: k.min(21),
+                            sshash_m: None,
                             threads: 3,
                             chunk_bases,
                             forward_only,
@@ -2409,6 +2439,7 @@ mod tests {
             min_length: 31,
 
             m: 21,
+            sshash_m: None,
             threads: 2,
             chunk_bases: 7,
             forward_only: false,
@@ -2581,6 +2612,7 @@ mod tests {
                             k,
                             min_length: k,
                             m: k.min(21),
+                            sshash_m: None,
                             threads: 2,
                             chunk_bases,
                             forward_only,
@@ -2631,6 +2663,7 @@ mod tests {
             min_length: 31,
 
             m: 21,
+            sshash_m: None,
             threads: 2,
             chunk_bases: 8192,
             forward_only: false,
@@ -2699,6 +2732,7 @@ mod tests {
                     k,
                     min_length: k,
                     m: k.min(21),
+                    sshash_m: None,
                     threads: 4,
                     chunk_bases: 7,
                     forward_only: false,
@@ -2730,6 +2764,7 @@ mod tests {
                 min_length: 3,
 
                 m: 2,
+                sshash_m: None,
                 threads: 2,
                 chunk_bases: 2,
                 forward_only: false,

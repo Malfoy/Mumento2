@@ -91,7 +91,13 @@ impl PostingDictionary {
             }
         }
         drop(selected);
-        let dictionary = compact::build_dictionary(K, index.options.threads, None, strings)?;
+        let dictionary = compact::build_dictionary(
+            K,
+            index.options.threads,
+            None,
+            strings,
+            index.options.sshash_m,
+        )?;
         let head_count = distinct
             .checked_mul(2)
             .filter(|&n| n <= u32::MAX as usize)
@@ -278,6 +284,7 @@ mod tests {
                 k,
                 min_length: k,
                 m: k.min(21),
+                sshash_m: None,
                 threads: 1,
                 chunk_bases: 7,
                 forward_only,
@@ -311,7 +318,7 @@ mod tests {
                     .expect("SSHash occurrence dictionary");
                 assert_eq!(
                     dictionary.compact.dictionary.m(),
-                    compact::minimizer_length(k)
+                    compact::minimizer_length(k, None)
                 );
                 for (id, &slot) in dictionary.slots.iter().enumerate() {
                     let mut next = dictionary.heads[slot as usize];

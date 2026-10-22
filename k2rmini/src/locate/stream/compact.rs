@@ -7,8 +7,38 @@ pub(super) struct CompactProtoIndex {
     pub(super) dictionary: Dictionary,
 }
 
-pub(super) fn minimizer_length(k: usize) -> usize {
-    if k == 63 { 31 } else { (k / 2).clamp(1, 23) }
+/// SSHash minimizer length. Independent of `LocateOptions.m` (which is capped
+/// at 29 for legacy state). Pass `Some(m)` from `--sshash-m` to override;
+/// `None` uses the k-adaptive default.
+///
+/// Defaults keep the validated k=63 / m=31 pair, and for smaller k prefer a
+/// longer minimizer (stronger absent-window skips) than floor(k/2).
+pub(super) fn minimizer_length(k: usize, override_m: Option<usize>) -> usize {
+    let clamp = |m: usize| {
+        let hi = k.saturating_sub(1).min(31).max(1);
+        m.clamp(1, hi)
+    };
+    if let Some(m) = override_m {
+        return clamp(m);
+    }
+    if k == 0 {
+        return 1;
+    }
+    if k == 63 {
+        return 31;
+    }
+    // Larger m improves miss skips at small/mid k. Cap at 23 for k!=63 so
+    // dictionary build stays within the common SSHash word path used in tests.
+    let hi = k.saturating_sub(1).min(23).max(1);
+    let target = if k <= 7 {
+        k / 2
+    } else if k <= 31 {
+        // ~2/3 k, at least floor(k/2), at most hi
+        ((k * 2) / 3).max(k / 2)
+    } else {
+        k / 2
+    };
+    target.clamp(1, hi)
 }
 
 pub(super) fn build_dictionary(
@@ -16,6 +46,7 @@ pub(super) fn build_dictionary(
     threads: usize,
     parent: Option<&Path>,
     strings: Vec<String>,
+    override_m: Option<usize>,
 ) -> io::Result<Dictionary> {
     let scratch = if let Some(parent) = parent {
         std::fs::create_dir_all(parent)?;
@@ -25,7 +56,7 @@ pub(super) fn build_dictionary(
     } else {
         tempfile::Builder::new().prefix("sshash-").tempdir()?
     };
-    let m = minimizer_length(k);
+    let m = minimizer_length(k, override_m);
     let mut config = BuildConfiguration::new(k, m).map_err(invalid)?;
     config.num_threads = threads;
     config.ram_limit_gib = 4;
@@ -149,8 +180,9 @@ impl FragmentIndex {
             position_offsets.push(position_offsets.last().unwrap() + dna.len() - k + 1);
             strings.push(String::from_utf8(dna).map_err(io::Error::other)?);
         }
+        let override_m = options.sshash_m;
         drop(source);
-        let dictionary = build_dictionary(k, options.threads, parent, strings)?;
+        let dictionary = build_dictionary(k, options.threads, parent, strings, override_m)?;
         if dictionary.num_strings() as usize != patterns.len() {
             return Err(invalid("SSHash changed proto-MUM record order/count"));
         }
@@ -301,17 +333,17 @@ mod tests {
     #[test]
     fn small_k_reduces_minimizer_length_without_changing_dictionary() {
         for k in 3..=64 {
-            let m = minimizer_length(k);
-            assert!((1..k).contains(&m));
+            let m = minimizer_length(k, None);
+            assert!((1..k).contains(&m), "k={k} m={m}");
             assert!(m <= 31);
-            if k < 31 {
-                assert!(m <= k / 2);
-            }
+            assert!(m <= k.saturating_sub(1).min(23) || k == 63);
         }
-        assert_eq!(minimizer_length(3), 1);
-        assert_eq!(minimizer_length(7), 3);
-        assert_eq!(minimizer_length(21), 10);
-        assert_eq!(minimizer_length(63), 31);
+        assert_eq!(minimizer_length(3, None), 1);
+        assert_eq!(minimizer_length(7, None), 3); // tiny-k keeps floor(k/2)
+        assert_eq!(minimizer_length(21, None), 14); // 2*21/3 = 14
+        assert_eq!(minimizer_length(63, None), 31);
+        assert_eq!(minimizer_length(21, Some(10)), 10);
+        assert_eq!(minimizer_length(21, Some(100)), 20); // clamped to k-1
     }
 
     fn batch_matches_point<const K: usize>() -> io::Result<()>
@@ -442,6 +474,7 @@ mod tests {
                 min_length: 20,
 
                 m: 15,
+                sshash_m: None,
                 threads: 2,
                 chunk_bases: 127,
                 forward_only: false,
