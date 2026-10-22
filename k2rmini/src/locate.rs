@@ -37,10 +37,16 @@ fn complement(base: u8) -> u8 {
 #[derive(Clone)]
 pub struct LocateOptions {
     pub k: usize,
+    /// Reported MUM length floor; must be >= k (seed length).
+    pub min_length: usize,
     pub m: usize,
     pub threads: usize,
     pub chunk_bases: usize,
     pub forward_only: bool,
+    /// Mumemto global 3-col coords (default for CLI). When false, contig-relative 4-col.
+    pub mumemto_format: bool,
+    /// Write mumemto-compatible .bumbl instead of text/zstd MUM rows.
+    pub binary: bool,
 }
 
 impl LocateOptions {
@@ -48,11 +54,17 @@ impl LocateOptions {
         if self.k == 0 || self.m == 0 || self.m > self.k || self.m > 29 {
             return Err(invalid("require k >= m >= 1 and m <= 29"));
         }
+        if self.min_length < self.k {
+            return Err(invalid("min-match-len must be >= k"));
+        }
         if self.k - self.m + 1 >= 65536 {
             return Err(invalid("SIMD minimizer window must be smaller than 65536"));
         }
         if self.threads == 0 || self.chunk_bases == 0 {
             return Err(invalid("threads and chunk-bases must be positive"));
+        }
+        if self.binary && !self.mumemto_format {
+            return Err(invalid("binary bumbl output requires mumemto global coordinates"));
         }
         Ok(())
     }
@@ -192,10 +204,14 @@ mod tests {
             Some(temp.path()),
             LocateOptions {
                 k: 3,
+                min_length: 3,
+
                 m: 2,
                 threads: 3,
                 chunk_bases,
                 forward_only,
+                mumemto_format: false,
+                binary: false,
             },
         )
         .unwrap();
@@ -204,6 +220,36 @@ mod tests {
             String::from_utf8(zstd::stream::decode_all(File::open(output).unwrap()).unwrap())
                 .unwrap(),
         )
+    }
+
+    #[test]
+    fn min_length_defaults_and_rejects_below_k() {
+        let ok = LocateOptions {
+            k: 21,
+            min_length: 21,
+            m: 15,
+            threads: 1,
+            chunk_bases: 64,
+            forward_only: false,
+            mumemto_format: true,
+            binary: false,
+        };
+        assert!(ok.validate().is_ok());
+        let raised = LocateOptions {
+            min_length: 40,
+            ..ok.clone()
+        };
+        assert!(raised.validate().is_ok());
+        let bad = LocateOptions {
+            min_length: 20,
+            ..ok
+        };
+        assert!(
+            bad.validate()
+                .unwrap_err()
+                .to_string()
+                .contains("min-match-len")
+        );
     }
 
     #[test]
@@ -363,7 +409,7 @@ mod tests {
             let (_, output) = run_mode(&patterns, &inputs, 2, true);
             let observed: FxHashSet<_> = output
                 .lines()
-                .skip(2)
+                .filter(|row| !row.is_empty() && !row.starts_with('#'))
                 .map(|line| {
                     let fields: Vec<_> = line.split('\t').collect();
                     (
@@ -402,7 +448,7 @@ mod tests {
         let (stats, output) = run("", &["", ""], 1);
         assert_eq!(stats.proto_mums, 0);
         assert_eq!(stats.verified_mums, 0);
-        assert_eq!(output.lines().count(), 2);
+        assert_eq!(output.lines().count(), 0);
     }
 
     #[test]
@@ -559,7 +605,7 @@ mod tests {
             let (_, output) = run(&patterns, &inputs, 1 + case % 5);
             let observed: FxHashSet<_> = output
                 .lines()
-                .skip(2)
+                .filter(|row| !row.is_empty() && !row.starts_with('#'))
                 .map(|row| {
                     let f: Vec<_> = row.split('\t').collect();
                     let starts: Vec<usize> = f[1].split(',').map(|v| v.parse().unwrap()).collect();

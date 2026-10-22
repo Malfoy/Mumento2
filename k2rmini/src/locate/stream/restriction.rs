@@ -1491,10 +1491,14 @@ mod tests {
             let mut source = ProtoIndex {
                 options: LocateOptions {
                     k: K,
+                    min_length: K,
+
                     m: K.min(19),
                     threads: 2,
                     chunk_bases: 127,
                     forward_only: false,
+                    mumemto_format: false,
+                    binary: false,
                 },
                 patterns: Vec::new(),
                 sequences: PackedSeqVec::default(),
@@ -1572,10 +1576,14 @@ mod tests {
         let mut source = ProtoIndex {
             options: LocateOptions {
                 k: 7,
+                min_length: 7,
+
                 m: 5,
                 threads: 1,
                 chunk_bases: 127,
                 forward_only: false,
+                mumemto_format: false,
+                binary: false,
             },
             patterns: Vec::new(),
             sequences: PackedSeqVec::default(),
@@ -1854,10 +1862,13 @@ mod tests {
             let mut source = ProtoIndex {
                 options: LocateOptions {
                     k,
+                    min_length: k,
                     m: k.min(19),
                     threads: 2,
                     chunk_bases: 127,
                     forward_only: false,
+                    mumemto_format: false,
+                    binary: false,
                 },
                 patterns: Vec::new(),
                 sequences: PackedSeqVec::default(),
@@ -2335,10 +2346,13 @@ mod tests {
             let mut source = ProtoIndex {
                 options: LocateOptions {
                     k,
+                    min_length: k,
                     m: k.min(19),
                     threads: 2,
                     chunk_bases: 127,
                     forward_only: false,
+                    mumemto_format: false,
+                    binary: false,
                 },
                 patterns: Vec::new(),
                 sequences: PackedSeqVec::default(),

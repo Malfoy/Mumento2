@@ -276,10 +276,13 @@ mod tests {
         let mut source = ProtoIndex {
             options: LocateOptions {
                 k,
+                min_length: k,
                 m: k.min(21),
                 threads: 1,
                 chunk_bases: 7,
                 forward_only,
+                mumemto_format: false,
+                binary: false,
             },
             patterns: Vec::new(),
             sequences: PackedSeqVec::default(),

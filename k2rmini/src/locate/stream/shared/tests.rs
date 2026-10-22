@@ -4,10 +4,14 @@ use std::collections::BTreeSet;
 fn options(forward_only: bool) -> LocateOptions {
     LocateOptions {
         k: 3,
+        min_length: 3,
+
         m: 2,
         threads: 3,
         chunk_bases: 2,
         forward_only,
+        mumemto_format: false,
+        binary: false,
     }
 }
 fn rc(s: &[u8]) -> Vec<u8> {
@@ -114,7 +118,7 @@ fn observed(path: &Path, genomes: &[Vec<String>], forward: bool) -> BTreeSet<Mat
     let text =
         String::from_utf8(zstd::stream::decode_all(File::open(path).unwrap()).unwrap()).unwrap();
     let mut output = BTreeSet::new();
-    for line in text.lines().skip(2) {
+    for line in text.lines().filter(|row| !row.is_empty() && !row.starts_with('#')) {
         let fields: Vec<_> = line.split('\t').collect();
         let len = fields[0].parse::<usize>().unwrap();
         let starts: Vec<_> = fields[1].split(',').collect();
@@ -182,6 +186,58 @@ fn prepare(dir: &Path, genomes: &[Vec<String>], offset: usize) -> (PathBuf, Vec<
     )
     .unwrap();
     (path, inputs)
+}
+
+#[test]
+fn min_length_floor_drops_short_survivors_and_state_stores_it() {
+    // Unique blocks of length 5 and 8; seed k=3 so both are discoverable.
+    let genomes = vec![
+        vec!["AAACCCGG".into(), "TTTTT".into()],
+        vec!["AAACCCGG".into(), "TTTTT".into()],
+    ];
+    let temp = tempfile::tempdir().unwrap();
+    let (patterns, inputs) = prepare(temp.path(), &genomes, 0);
+    let mut opts = options(true);
+    opts.k = 3;
+    opts.min_length = 3;
+    opts.m = 2;
+    let out = temp.path().join("all.zst");
+    let state = temp.path().join("state");
+    locate_shared_mums(
+        &patterns,
+        &inputs,
+        &out,
+        Some(temp.path()),
+        opts.clone(),
+        None,
+        Some(&state),
+        None,
+    )
+    .unwrap();
+    let all = observed(&out, &genomes, true);
+    assert!(all.iter().any(|(s, _)| s.len() == 5), "{all:?}");
+    assert!(all.iter().any(|(s, _)| s.len() == 8), "{all:?}");
+    let info = read_state_info(&state).unwrap();
+    assert_eq!((info.k, info.min_length, info.version), (3, 3, 3));
+
+    opts.min_length = 6;
+    let filtered = temp.path().join("filtered.zst");
+    locate_shared_mums(
+        &patterns,
+        &inputs,
+        &filtered,
+        Some(temp.path()),
+        opts,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let kept = observed(&filtered, &genomes, true);
+    assert!(kept.iter().all(|(s, _)| s.len() >= 6), "{kept:?}");
+    assert!(kept.iter().any(|(s, _)| s.len() == 8), "{kept:?}");
+    assert!(!kept.iter().any(|(s, _)| s.len() == 5), "{kept:?}");
+    assert!(kept.len() < all.len());
 }
 
 #[test]

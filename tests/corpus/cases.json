@@ -8035,8 +8035,8 @@
     "kind": "error",
     "error": "minimum_zero",
     "description": "Reject minimum zero and preserve committed data",
-    "error_contains": "require 1 <= N",
-    "cli_error_contains": "require 1 <= N",
+    "error_contains": "minimum genome count must be non-zero",
+    "cli_error_contains": "minimum genome count must be non-zero",
     "genomes": [
       [
         "GCAACTTCCGCAGGACCGACAGCCTTCTCTATGCTCTAGCTCGCTTAGTCCCTCAACGGTGTGCGACCCACCTCGGCGAG"

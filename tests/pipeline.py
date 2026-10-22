@@ -1,6 +1,7 @@
 """End-to-end tests of the native GGCAT → K2Rmini Rust driver."""
 
 import gzip
+import json
 import lzma
 import compression.zstd as zstd
 import os
@@ -42,7 +43,7 @@ class PipelineTests(unittest.TestCase):
                         text = zstd.decompress((directory/name).read_bytes()).decode()
                         expected = expected_matches(documents, k, minimum, forward)
                         verify_output(self, text, documents, k, minimum, forward, expected)
-                        return set(text.splitlines()[2:])
+                        return {line for line in text.splitlines() if line and not line.startswith('#')}
 
                     check('all.zst', inputs[:2], ['-k', str(k)], genomes[:2], None)
                     state = directory/'state'
@@ -94,6 +95,20 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(set(automatic), set(full))
             self.assertEqual({int(r.split('\t')[0]) for r in automatic}, {300, 360, 400})
             self.assertIn('Seed subset: 16/17', run.stderr)
+
+    def test_even_k_all_genome_path_uses_sshash(self):
+        rng = random.Random(170036)
+        core = ''.join(rng.choices('ACGT', k=240))
+        genomes = [[core], [rc(core)], [core]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-even-k-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            rows, run = self.run_tool(scratch, 'k20.zst', inputs, '-k', '20')
+            self.assertIn('SSHash Rust', run.stderr)
+            self.assertEqual(rows, ['240\t0,0,0\t+,-,+\t0,0,0'])
+            lengths = (scratch / 'k20.lengths').read_text().splitlines()
+            self.assertTrue(lengths[0].endswith(' * 240'))
+            self.assertEqual(len([line for line in lengths if ' * ' not in line]), 3)
 
     def test_input_list_runs_compressed_genomes_with_spaces_and_rejects_duplicates(self):
         rng = random.Random(180031)
@@ -165,10 +180,11 @@ class PipelineTests(unittest.TestCase):
     def run_tool(self, directory, output_name, inputs, *extra):
         output = directory / output_name
         run = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-j', '3', '-m', '0.1',
-                              '-o', str(output), *extra, *map(str, inputs)],
+                              '--contig-coords', '-o', str(output), *extra, *map(str, inputs)],
                              capture_output=True, text=True, timeout=90)
         self.assertEqual(run.returncode, 0, run.stdout[-4000:] + run.stderr[-4000:])
-        rows = zstd.decompress(output.read_bytes()).decode().splitlines()[2:]
+        rows = [line for line in zstd.decompress(output.read_bytes()).decode().splitlines()
+                if line and not line.startswith('#')]
         return rows, run
 
     @staticmethod
@@ -200,6 +216,10 @@ class PipelineTests(unittest.TestCase):
                 rows, _ = self.run_tool(scratch, f'k{k}-N{minimum}.zst', inputs, '-k', str(k), '-N', str(minimum))
                 wanted = {r for r in expected if sum(p != '.' for p in r.split('\t')[1].split(',')) >= minimum}
                 self.assertEqual(set(rows), wanted)
+            # Relative -N -1 == absolute N=3 for 4 genomes.
+            relative, _ = self.run_tool(scratch, 'relative.zst', inputs, '-k', '21', '-N', '-1')
+            absolute, _ = self.run_tool(scratch, 'absolute.zst', inputs, '-k', '21', '-N', '3')
+            self.assertEqual(set(relative), set(absolute))
 
     def test_incremental_threshold_matches_fresh_build_and_new_only_matches(self):
         rng = random.Random(2751)
@@ -223,6 +243,128 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(set(updated), set(fresh))
             self.assertTrue({160, 180, 190, 240} <= {int(r.split('\t')[0]) for r in updated})
             self.assertIn('190\t.,.,0,0\t.,.,+,-\t.,.,4,0', updated)
+
+    def test_min_length_filters_short_mums_without_changing_k(self):
+        rng = random.Random(4242)
+        short, long = [''.join(rng.choices('ACGT', k=n)) for n in (30, 50)]
+        genomes = [[short, long], [short, long]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-minlen-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            all_rows, _ = self.run_tool(scratch, 'all.zst', inputs, '-k', '21', '-l', '21')
+            filtered, _ = self.run_tool(scratch, 'filtered.zst', inputs, '-k', '21', '-l', '40')
+            self.assertTrue(any(int(r.split('\t')[0]) < 40 for r in all_rows))
+            self.assertTrue(all(int(r.split('\t')[0]) >= 40 for r in filtered))
+            self.assertLess(len(filtered), len(all_rows))
+            # Same seed k: -l only drops short survivors (30 stays discoverable at k=21).
+            self.assertTrue(any(int(r.split('\t')[0]) == 30 for r in all_rows))
+            self.assertFalse(any(int(r.split('\t')[0]) == 30 for r in filtered))
+
+    def test_seed_k_sets_discovery_resolution_l_cannot_recover(self):
+        """k is discovery resolution: MUMs shorter than k are never seeded.
+
+        Raising -l only filters after reduce. Invalid l < k is rejected; there is
+        no way to ask for 'k=31 discovering length-21 MUMs'.
+        """
+        rng = random.Random(4243)
+        short, long = [''.join(rng.choices('ACGT', k=n)) for n in (30, 50)]
+        genomes = [[short, long], [short, long]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-seed-k-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            at_k21, _ = self.run_tool(scratch, 'k21.zst', inputs, '-k', '21')
+            at_k31, _ = self.run_tool(scratch, 'k31.zst', inputs, '-k', '31')
+            lens21 = {int(r.split('\t')[0]) for r in at_k21}
+            lens31 = {int(r.split('\t')[0]) for r in at_k31}
+            self.assertIn(30, lens21)
+            self.assertIn(50, lens21)
+            self.assertNotIn(30, lens31)
+            self.assertIn(50, lens31)
+            # -l with the short seed still finds then drops the 30 bp MUM.
+            filtered, _ = self.run_tool(scratch, 'k21-l40.zst', inputs, '-k', '21', '-l', '40')
+            self.assertNotIn(30, {int(r.split('\t')[0]) for r in filtered})
+            self.assertIn(50, {int(r.split('\t')[0]) for r in filtered})
+            # Cannot request discovery below k via -l.
+            bad = subprocess.run(
+                [str(BIN), '--ggcat', str(GGCAT), '-k', '31', '-l', '21',
+                 '-o', str(scratch / 'bad.zst'), *map(str, inputs)],
+                capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn('min-match-len', bad.stderr.lower())
+
+    def test_update_inherits_min_length_from_state(self):
+        rng = random.Random(4244)
+        short, long = [''.join(rng.choices('ACGT', k=n)) for n in (30, 50)]
+        old = [[short, long], [short, long]]
+        new = [[short, long]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-inherit-l-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, old, 'old')
+            state = scratch / 'state'
+            rows, _ = self.run_tool(
+                scratch, 'initial.zst', inputs, '-k', '21', '-l', '40', '--state', str(state))
+            self.assertTrue(all(int(r.split('\t')[0]) >= 40 for r in rows))
+            info = json.loads((next(state.glob('generation-*')) / 'state.json').read_text())
+            self.assertEqual((info['k'], info['min_length'], info['version']), (21, 40, 3))
+            for path in inputs:
+                path.unlink()
+            inputs = self.write_genomes(scratch, new, 'new')
+            # Omit -k/-l: update must keep state's discovery k and reported floor.
+            updated, _ = self.run_tool(scratch, 'updated.zst', inputs, '--update', str(state))
+            self.assertTrue(all(int(r.split('\t')[0]) >= 40 for r in updated))
+            self.assertFalse(any(int(r.split('\t')[0]) == 30 for r in updated))
+            info = json.loads((next(state.glob('generation-*')) / 'state.json').read_text())
+            self.assertEqual((info['k'], info['min_length']), (21, 40))
+
+    def test_binary_bumbl_writes_lengths_and_matches_global_text(self):
+        rng = random.Random(9090)
+        core = ''.join(rng.choices('ACGT', k=80))
+        genomes = [[core], [rc(core)]]
+        with tempfile.TemporaryDirectory(prefix='mumento2-bumbl-') as scratch:
+            scratch = Path(scratch)
+            inputs = self.write_genomes(scratch, genomes, 'g')
+            text_out = scratch / 'out.mums.zst'
+            run = subprocess.run(
+                [str(BIN), '--ggcat', str(GGCAT), '-k', '21', '-j', '3', '-m', '0.1',
+                 '-o', str(text_out), *map(str, inputs)],
+                capture_output=True, text=True, timeout=90)
+            self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+            text_rows = [line for line in zstd.decompress(text_out.read_bytes()).decode().splitlines()
+                         if line and not line.startswith('#')]
+            bumbl_path = scratch / 'out.bumbl'
+            run = subprocess.run(
+                [str(BIN), '--ggcat', str(GGCAT), '-k', '21', '-j', '3', '-m', '0.1',
+                 '-b', '-o', str(scratch / 'out.mums.zst'), *map(str, inputs)],
+                capture_output=True, text=True, timeout=90)
+            self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+            self.assertTrue(bumbl_path.is_file())
+            self.assertTrue((scratch / 'out.lengths').is_file())
+            data = bumbl_path.read_bytes()
+            flags = int.from_bytes(data[0:2], 'little')
+            self.assertEqual(flags & (1 << 15), 1 << 15)
+            n_seqs = int.from_bytes(data[2:10], 'little')
+            n_mums = int.from_bytes(data[10:18], 'little')
+            self.assertEqual(n_seqs, 2)
+            self.assertEqual(n_mums, len(text_rows))
+            off = 18
+            lengths = [int.from_bytes(data[off + 4 * i:off + 4 * (i + 1)], 'little')
+                       for i in range(n_mums)]
+            off += 4 * n_mums
+            starts = []
+            for _ in range(n_mums):
+                row = [int.from_bytes(data[off + 8 * g:off + 8 * (g + 1)], 'little', signed=True)
+                       for g in range(n_seqs)]
+                starts.append(row)
+                off += 8 * n_seqs
+            text_lens = [int(r.split('\t')[0]) for r in text_rows]
+            self.assertEqual(sorted(lengths), sorted(text_lens))
+            # Reject -b with --contig-coords.
+            bad = subprocess.run(
+                [str(BIN), '--ggcat', str(GGCAT), '-k', '21', '-b', '--contig-coords',
+                 '-o', str(scratch / 'bad.bumbl'), *map(str, inputs)],
+                capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn('incompatible', bad.stderr.lower())
 
     def test_incremental_all_genomes_splits_old_mum_and_inherits_options(self):
         rng = random.Random(1536)
@@ -258,12 +400,14 @@ class PipelineTests(unittest.TestCase):
             output = scratch / 'mums.tsv.zst'
             protos = scratch / 'protos.fa.zst'
             run = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-k', '31', '-j', '4',
-                                  '-m', '0.1', '--proto-output', str(protos), '-o', str(output), *inputs],
+                                  '-m', '0.1', '--contig-coords', '--proto-output', str(protos),
+                                  '-o', str(output), *inputs],
                                  capture_output=True, text=True, timeout=90)
             self.assertEqual(run.returncode, 0, run.stdout[-4000:] + run.stderr[-4000:])
             proto_text = zstd.decompress(protos.read_bytes()).decode()
             self.assertEqual([len(s) for s in proto_text.splitlines() if not s.startswith('>')], [1000])
-            rows = zstd.decompress(output.read_bytes()).decode().splitlines()[2:]
+            rows = [line for line in zstd.decompress(output.read_bytes()).decode().splitlines()
+                    if line and not line.startswith('#')]
             self.assertEqual(rows, ['400\t0,0\t+,-\t0,0', '360\t370,0\t+,-\t0,1', '300\t700,0\t+,-\t0,2'])
 
     def test_mum_with_no_unique_kmer_is_retained(self):
@@ -284,10 +428,12 @@ class PipelineTests(unittest.TestCase):
                 inputs.append(str(path))
             output = scratch / 'mums.tsv.zst'
             run = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-k', str(k),
-                                  '-j', '4', '-m', '0.1', '-o', str(output), *inputs],
+                                  '-j', '4', '-m', '0.1', '--contig-coords',
+                                  '-o', str(output), *inputs],
                                  capture_output=True, text=True, timeout=90)
             self.assertEqual(run.returncode, 0, run.stdout[-4000:] + run.stderr[-4000:])
-            rows = zstd.decompress(output.read_bytes()).decode().splitlines()[2:]
+            rows = [line for line in zstd.decompress(output.read_bytes()).decode().splitlines()
+                    if line and not line.startswith('#')]
             self.assertEqual(rows, ['80\t0,0\t+,-\t0,0'])
 
     def test_original_workflow_with_rearranged_and_reversed_contigs(self):
@@ -308,16 +454,15 @@ class PipelineTests(unittest.TestCase):
             for threads, chunk, forward in [(1, 17, False), (4, 71, False), (4, 19, True)]:
                 output = scratch / f"result-{threads}-{forward}.tsv.zst"
                 command = [str(BIN), "--ggcat", str(GGCAT), "-k", "21", "-j", str(threads),
-                           "--chunk-bases", str(chunk), "-m", "0.1", "-o", str(output), *inputs]
+                           "--chunk-bases", str(chunk), "-m", "0.1", "--contig-coords",
+                           "-o", str(output), *inputs]
                 if forward:
                     command.append("--forward-only")
                     command += ["--keep-temp", "--temp-dir", str(scratch / "retained")]
                 run = subprocess.run(command, capture_output=True, text=True, timeout=90)
                 self.assertEqual(run.returncode, 0, run.stdout[-4000:] + run.stderr[-4000:])
                 text = zstd.decompress(output.read_bytes()).decode()
-                lines = [line for line in text.splitlines() if not line.startswith("#")]
-                self.assertEqual(lines[0], "length\tstarts\tstrands\tcontigs")
-                rows = lines[1:]
+                rows = [line for line in text.splitlines() if line and not line.startswith("#")]
                 self.assertEqual(len(rows), 1 if forward else 3, text)
                 observed = set()
                 for row in rows:

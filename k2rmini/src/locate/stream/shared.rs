@@ -13,12 +13,19 @@ mod corpus_tests;
 #[cfg(test)]
 mod tests;
 
-const STATE_VERSION: u32 = 1;
+/// On-disk updateable state layout (mumento2 only; not classic mumemto):
+///   CURRENT              -> generation-* name
+///   generation-*/state.json
+///   generation-*/protos.fa.zst
+///   generation-*/genomes/{id}.zst   (M2REF packed DNA + contig meta + fragments)
+///   generation-*/contexts/{a}/{q}   (exact position-validity evidence)
+const STATE_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StateInfo {
     pub version: u32,
     pub k: usize,
+    pub min_length: usize,
     pub m: usize,
     pub forward_only: bool,
     /// None means all genomes, including subsequently added genomes.
@@ -287,13 +294,13 @@ fn read_contexts(scratch: &Path, genomes: usize) -> io::Result<Vec<Context>> {
 // strict multi-MUM semantics. Missing genomes do not count as repeats.
 fn reduce_shared(
     contexts: &mut [Context],
-    k: u64,
+    min_length: u64,
     genomes: usize,
     minimum: usize,
     anchor: usize,
 ) -> Vec<SharedMatch> {
     if minimum == genomes {
-        return reduce_ranges(contexts, k, genomes, 0, 1, u64::MAX)
+        return reduce_ranges(contexts, min_length, genomes, 0, 1, u64::MAX)
             .into_iter()
             .map(|m| SharedMatch {
                 len: m.len,
@@ -323,7 +330,7 @@ fn reduce_shared(
         for ranges in &mut active {
             while ranges
                 .first_key_value()
-                .is_some_and(|(&end, _)| end < begin + k)
+                .is_some_and(|(&end, _)| end < begin + min_length)
             {
                 ranges.pop_first();
             }
@@ -332,7 +339,7 @@ fn reduce_shared(
             .iter()
             .flatten()
             .map(|&i| contexts[i].record.end)
-            .filter(|&end| end >= begin + k)
+            .filter(|&end| end >= begin + min_length)
             .collect();
         if ends.len() < minimum {
             continue;
@@ -409,6 +416,8 @@ fn write_shared_output(
     mut matches: Vec<SharedMatch>,
     references: &[Reference],
     output: &Path,
+    mumemto_format: bool,
+    binary: bool,
 ) -> io::Result<(usize, usize)> {
     matches.sort_unstable_by(|a, b| {
         a.len.cmp(&b.len).then_with(|| {
@@ -429,6 +438,28 @@ fn write_shared_output(
         let anchor = m.hits.iter().position(Option::is_some).unwrap();
         (anchor, m.hits[anchor].unwrap().start, m.len)
     });
+    let genomes: Vec<GenomeMeta> = references.iter().map(|r| r.meta.clone()).collect();
+    write_lengths_file(&lengths_path(output), &genomes)?;
+    if binary {
+        let rows: Vec<super::bumbl::BumblRow> = matches
+            .iter()
+            .map(|m| super::bumbl::BumblRow {
+                len: m.len as u32,
+                starts: m
+                    .hits
+                    .iter()
+                    .map(|h| h.map(|hit| hit.start as i64))
+                    .collect(),
+                reverse: m
+                    .hits
+                    .iter()
+                    .map(|h| h.map(|hit| hit.reverse).unwrap_or(false))
+                    .collect(),
+            })
+            .collect();
+        super::bumbl::write_bumbl(output, references.len() as u64, &rows)?;
+        return Ok((matches.len(), total - matches.len()));
+    }
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -436,14 +467,10 @@ fn write_shared_output(
     let mut result = tempfile::NamedTempFile::new_in(parent)?;
     {
         let mut out = zstd::stream::write::Encoder::new(BufWriter::new(result.as_file_mut()), 1)?;
-        writeln!(
-            out,
-            "# Coordinates: zero-based forward-strand starts within each contig; input genome order; . = absent"
-        )?;
-        writeln!(out, "length\tstarts\tstrands\tcontigs")?;
+        let columns = if mumemto_format { 2 } else { 3 };
         for m in &matches {
             write!(out, "{}", m.len)?;
-            for column in 0..3 {
+            for column in 0..columns {
                 write!(out, "\t")?;
                 for (g, hit) in m.hits.iter().enumerate() {
                     if g > 0 {
@@ -451,6 +478,7 @@ fn write_shared_output(
                     }
                     if let Some(hit) = hit {
                         match column {
+                            0 if mumemto_format => write!(out, "{}", hit.start)?,
                             0 => write!(
                                 out,
                                 "{}",
@@ -459,6 +487,8 @@ fn write_shared_output(
                             1 => write!(out, "{}", if hit.reverse { '-' } else { '+' })?,
                             _ => write!(out, "{}", hit.contig)?,
                         }
+                    } else if mumemto_format {
+                        // Mumemto partials use empty fields.
                     } else {
                         write!(out, ".")?;
                     }
@@ -468,26 +498,9 @@ fn write_shared_output(
         }
         out.finish()?.flush()?;
     }
-    let mut mapping_name = output.as_os_str().to_os_string();
-    mapping_name.push(".contigs.tsv.zst");
-    let mut mapping = tempfile::NamedTempFile::new_in(parent)?;
-    {
-        let mut out = zstd::stream::write::Encoder::new(BufWriter::new(mapping.as_file_mut()), 1)?;
-        writeln!(out, "genome\tinput\tcontig\tname\tlength")?;
-        for (g, reference) in references.iter().enumerate() {
-            for (id, c) in reference.meta.contigs.iter().enumerate() {
-                writeln!(
-                    out,
-                    "{g}\t{}\t{id}\t{}\t{}",
-                    reference.meta.input.display(),
-                    c.name,
-                    c.len
-                )?;
-            }
-        }
-        out.finish()?.flush()?;
+    if !mumemto_format {
+        write_contigs_sidecar(output, &genomes)?;
     }
-    mapping.persist(PathBuf::from(mapping_name))?;
     result.persist(output)?;
     Ok((matches.len(), total - matches.len()))
 }
@@ -523,16 +536,26 @@ pub fn locate_shared_mums(
     let previous = update.map(generation).transpose()?;
     let old_info = previous.as_deref().map(read_generation_info).transpose()?;
     if let Some(info) = &old_info {
-        if (info.k, info.m, info.forward_only) != (options.k, options.m, options.forward_only) {
+        if (info.k, info.min_length, info.m, info.forward_only)
+            != (
+                options.k,
+                options.min_length,
+                options.m,
+                options.forward_only,
+            )
+        {
             return Err(invalid(
-                "updates must retain the state's k, minimizer length and strand mode",
+                "updates must retain the state's k, min-match-len, minimizer length and strand mode",
             ));
         }
     }
     let old_count = old_info.as_ref().map_or(0, |s| s.genomes);
     let genomes = old_count + inputs.len();
     let minimum = minimum_genomes.unwrap_or(genomes);
-    if minimum == 0 || minimum > genomes {
+    if minimum == 0 {
+        return Err(invalid("minimum genome count must be non-zero"));
+    }
+    if minimum > genomes {
         return Err(invalid("require 1 <= N <= total genome count"));
     }
     let scratch = if let Some(parent) = destination.or(scratch_parent) {
@@ -745,7 +768,7 @@ pub fn locate_shared_mums(
         for _ in 0..options.threads.min(anchors) {
             let next = &next;
             let scratch = scratch.path();
-            let k = options.k as u64;
+            let min_length = options.min_length as u64;
             handles.push(scope.spawn(move || -> io::Result<Vec<SharedMatch>> {
                 let mut result = Vec::new();
                 loop {
@@ -755,7 +778,13 @@ pub fn locate_shared_mums(
                     }
                     let mut contexts =
                         read_contexts(&scratch.join("contexts").join(anchor.to_string()), genomes)?;
-                    result.extend(reduce_shared(&mut contexts, k, genomes, minimum, anchor));
+                    result.extend(reduce_shared(
+                        &mut contexts,
+                        min_length,
+                        genomes,
+                        minimum,
+                        anchor,
+                    ));
                 }
                 Ok(result)
             }));
@@ -771,13 +800,20 @@ pub fn locate_shared_mums(
     })?;
     timings.reduce = started.elapsed().as_secs_f64();
     let started = Instant::now();
-    let (verified_mums, merged_duplicates) = write_shared_output(matches, &references, output)?;
+    let (verified_mums, merged_duplicates) = write_shared_output(
+        matches,
+        &references,
+        output,
+        options.mumemto_format,
+        options.binary,
+    )?;
     timings.output = started.elapsed().as_secs_f64();
     let started = Instant::now();
     if let Some(destination) = destination {
         let info = StateInfo {
             version: STATE_VERSION,
             k: options.k,
+            min_length: options.min_length,
             m: options.m,
             forward_only: options.forward_only,
             minimum_genomes,

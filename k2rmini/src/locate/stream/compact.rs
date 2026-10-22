@@ -126,11 +126,13 @@ where
 
 impl FragmentIndex {
     pub(super) fn from_graph(source: ProtoIndex, parent: Option<&Path>) -> io::Result<Self> {
+        // Graph path: one canonical position per k-mer via compact SSHash.
+        // Even k is supported here. Forward-only / k>63 / empty use Self::new,
+        // which builds packed occurrence lists behind SSHash (postings.rs).
         if source.is_empty()
             || source.options.forward_only
             || source.options.k < 3
             || source.options.k > 63
-            || source.options.k % 2 == 0
         {
             return Self::new(source);
         }
@@ -424,9 +426,38 @@ mod tests {
     #[test]
     fn simd_batches_match_exact_point_queries_across_skips_strands_and_boundaries() -> io::Result<()>
     {
+        batch_matches_point::<20>()?;
+        batch_matches_point::<21>()?;
         batch_matches_point::<31>()?;
         batch_matches_point::<33>()?;
         batch_matches_point::<61>()?;
         batch_matches_point::<63>()
+    }
+
+    #[test]
+    fn even_k_uses_sshash_compact_index() -> io::Result<()> {
+        let mut source = ProtoIndex {
+            options: LocateOptions {
+                k: 20,
+                min_length: 20,
+
+                m: 15,
+                threads: 2,
+                chunk_bases: 127,
+                forward_only: false,
+                mumemto_format: false,
+                binary: false,
+            },
+            patterns: Vec::new(),
+            sequences: PackedSeqVec::default(),
+        };
+        let dna = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGT";
+        source.add_pattern(dna)?;
+        let index = FragmentIndex::from_graph(source, None)?;
+        assert!(
+            index.compact.is_some(),
+            "even k=20 must stay on the SSHash compact path"
+        );
+        Ok(())
     }
 }

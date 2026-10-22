@@ -200,7 +200,8 @@ def build_cases():
               'truncated_context_record', 'locked_state', 'existing_fork_destination',
               'missing_output_parent', 'missing_proto_archive')
     reasons = {
-        'minimum_zero':'require 1 <= N', 'minimum_exceeds_documents':'require 1 <= N',
+        'minimum_zero':'minimum genome count must be non-zero',
+        'minimum_exceeds_documents':'require 1 <= N',
         'threads_zero':'threads and chunk-bases must be positive',
         'chunk_zero':'threads and chunk-bases must be positive',
         'minimizer_zero':'require k >= m', 'minimizer_exceeds_k':'require k >= m',

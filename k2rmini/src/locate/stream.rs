@@ -1,6 +1,7 @@
 //! One query pass per genome: SIMD lookup and exact alignment evidence are
 //! computed together. Reduction never reads genome bases or compressed caches.
 use super::*;
+mod bumbl;
 mod compact;
 mod postings;
 mod restriction;
@@ -16,14 +17,14 @@ use std::{
     time::Instant,
 };
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct ContigMeta {
     name: String,
     start: u64,
     len: usize,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GenomeMeta {
     input: PathBuf,
     contigs: Vec<ContigMeta>,
@@ -1034,7 +1035,7 @@ fn retain_occurrence(top: &mut [usize; 3], contexts: &[Context], candidate: usiz
 // Uniqueness uses bounded occurrence evidence, without rescanning old contexts.
 fn reduce_ranges(
     contexts: &mut [Context],
-    k: u64,
+    min_length: u64,
     genomes: usize,
     shard: usize,
     shards: usize,
@@ -1068,7 +1069,9 @@ fn reduce_ranges(
             continue;
         }
         previous_end = end;
-        if end < begin + k || ((begin as u128 * shards as u128) / bases as u128) as usize != shard {
+        if end < begin + min_length
+            || ((begin as u128 * shards as u128) / bases as u128) as usize != shard
+        {
             continue;
         }
         let mut hits = Vec::with_capacity(genomes);
@@ -1157,7 +1160,7 @@ fn reduce_shard(
     shards: usize,
     workers: usize,
     genomes: usize,
-    k: usize,
+    min_length: usize,
 ) -> io::Result<Vec<VerifiedMatch>> {
     let mut contexts = Vec::new();
     let mut bytes = Vec::new();
@@ -1175,7 +1178,14 @@ fn reduce_shard(
         .map(|c| c.len as u64)
         .sum::<u64>()
         .max(1);
-    let output = reduce_ranges(&mut contexts, k as u64, genomes, shard, shards, bases);
+    let output = reduce_ranges(
+        &mut contexts,
+        min_length as u64,
+        genomes,
+        shard,
+        shards,
+        bases,
+    );
     Ok(output)
 }
 // For a fixed reference contig, orientation and diagonal, a maximal exact
@@ -1367,13 +1377,61 @@ fn alignment_context_uncached(
     })
 }
 
-fn write_output_shard(
-    mut matches: Vec<VerifiedMatch>,
-    genomes: &[GenomeMeta],
-    scratch: &Path,
-    shard: usize,
-) -> io::Result<(usize, usize)> {
-    for item in &mut matches {
+fn lengths_path(output: &Path) -> PathBuf {
+    let text = output.to_string_lossy();
+    let base = text.strip_suffix(".zst").unwrap_or(text.as_ref());
+    let base = base
+        .strip_suffix(".tsv")
+        .or_else(|| base.strip_suffix(".mums"))
+        .or_else(|| base.strip_suffix(".bumbl"))
+        .unwrap_or(base);
+    PathBuf::from(format!("{base}.lengths"))
+}
+
+fn write_lengths_file(path: &Path, genomes: &[GenomeMeta]) -> io::Result<()> {
+    let mut out = BufWriter::new(File::create(path)?);
+    for genome in genomes {
+        let total: u64 = genome.contigs.iter().map(|c| c.len as u64).sum();
+        let input = genome.input.display();
+        writeln!(out, "{input} * {total}")?;
+        for contig in &genome.contigs {
+            writeln!(out, "{input} {} {}", contig.name, contig.len)?;
+        }
+    }
+    out.flush()
+}
+
+fn write_contigs_sidecar(output: &Path, genomes: &[GenomeMeta]) -> io::Result<()> {
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut mapping_name = output.as_os_str().to_os_string();
+    mapping_name.push(".contigs.tsv.zst");
+    let mut mapping = tempfile::NamedTempFile::new_in(parent)?;
+    {
+        let mut writer =
+            zstd::stream::write::Encoder::new(BufWriter::new(mapping.as_file_mut()), 1)?;
+        writeln!(writer, "genome\tinput\tcontig\tname\tlength")?;
+        for (id, genome) in genomes.iter().enumerate() {
+            for (contig_id, contig) in genome.contigs.iter().enumerate() {
+                writeln!(
+                    writer,
+                    "{id}\t{}\t{contig_id}\t{}\t{}",
+                    genome.input.display(),
+                    contig.name,
+                    contig.len
+                )?;
+            }
+        }
+        writer.finish()?.flush()?;
+    }
+    mapping.persist(PathBuf::from(mapping_name))?;
+    Ok(())
+}
+
+fn prepare_verified_matches(matches: &mut Vec<VerifiedMatch>) -> (usize, usize) {
+    for item in matches.iter_mut() {
         if item.hits[0].reverse {
             for hit in &mut item.hits {
                 hit.reverse = !hit.reverse;
@@ -1392,27 +1450,52 @@ fn write_output_shard(
     });
     let total = matches.len();
     matches.dedup_by_key(|m| (m.hits[0].start, m.len));
-    let count = matches.len();
+    (matches.len(), total - matches.len())
+}
+
+fn write_verified_bumbl(
+    matches: &mut Vec<VerifiedMatch>,
+    n_seqs: usize,
+    output: &Path,
+) -> io::Result<(usize, usize)> {
+    let (count, duplicates) = prepare_verified_matches(matches);
+    let rows: Vec<bumbl::BumblRow> = matches
+        .iter()
+        .map(|item| bumbl::BumblRow {
+            len: item.len as u32,
+            starts: item.hits.iter().map(|h| Some(h.start as i64)).collect(),
+            reverse: item.hits.iter().map(|h| h.reverse).collect(),
+        })
+        .collect();
+    bumbl::write_bumbl(output, n_seqs as u64, &rows)?;
+    Ok((count, duplicates))
+}
+
+fn write_output_shard(
+    mut matches: Vec<VerifiedMatch>,
+    genomes: &[GenomeMeta],
+    scratch: &Path,
+    shard: usize,
+    mumemto_format: bool,
+) -> io::Result<(usize, usize)> {
+    let (count, duplicates) = prepare_verified_matches(&mut matches);
     let file = File::create(scratch.join(format!("output-{shard}.tsv.zst")))?;
     let mut writer = zstd::stream::write::Encoder::new(BufWriter::new(file), 1)?;
-    if shard == 0 {
-        writeln!(
-            writer,
-            "# Coordinates: zero-based forward-strand starts within each contig; input genome order"
-        )?;
-        writeln!(writer, "length\tstarts\tstrands\tcontigs")?;
-    }
     for item in matches {
         write!(writer, "{}\t", item.len)?;
         for (i, hit) in item.hits.iter().enumerate() {
             if i != 0 {
                 write!(writer, ",")?;
             }
-            write!(
-                writer,
-                "{}",
-                hit.start - genomes[i].contigs[hit.contig as usize].start
-            )?;
+            if mumemto_format {
+                write!(writer, "{}", hit.start)?;
+            } else {
+                write!(
+                    writer,
+                    "{}",
+                    hit.start - genomes[i].contigs[hit.contig as usize].start
+                )?;
+            }
         }
         write!(writer, "\t")?;
         for (i, hit) in item.hits.iter().enumerate() {
@@ -1421,17 +1504,19 @@ fn write_output_shard(
             }
             write!(writer, "{}", if hit.reverse { '-' } else { '+' })?;
         }
-        write!(writer, "\t")?;
-        for (i, hit) in item.hits.iter().enumerate() {
-            if i != 0 {
-                write!(writer, ",")?;
+        if !mumemto_format {
+            write!(writer, "\t")?;
+            for (i, hit) in item.hits.iter().enumerate() {
+                if i != 0 {
+                    write!(writer, ",")?;
+                }
+                write!(writer, "{}", hit.contig)?;
             }
-            write!(writer, "{}", hit.contig)?;
         }
         writeln!(writer)?;
     }
     writer.finish()?.flush()?;
-    Ok((count, total - count))
+    Ok((count, duplicates))
 }
 
 #[derive(Debug, Default)]
@@ -1747,7 +1832,7 @@ fn locate_impl(
         scan_stats.add(stats);
     }
     let started = Instant::now();
-    let k = index.options.k;
+    let min_length = index.options.min_length;
     let mut reductions = thread::scope(|scope| -> io::Result<Vec<Vec<VerifiedMatch>>> {
         let mut handles = Vec::new();
         for shard in 0..shards {
@@ -1761,7 +1846,7 @@ fn locate_impl(
                     shards,
                     query_workers + 1,
                     inputs.len(),
-                    k,
+                    min_length,
                 )
             }));
         }
@@ -1810,62 +1895,60 @@ fn locate_impl(
             output_shards[shard.min(shards - 1)].push(item);
         }
     }
-    let output_stats = thread::scope(|scope| -> io::Result<Vec<(usize, usize)>> {
-        let mut handles = Vec::new();
-        for (shard, matches) in output_shards.into_iter().enumerate() {
-            let genomes = &genomes;
-            let scratch = scratch.path();
-            handles.push(scope.spawn(move || write_output_shard(matches, genomes, scratch, shard)));
-        }
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join()
-                    .map_err(|_| io::Error::other("output worker panicked"))?
-            })
-            .collect()
-    })?;
-    for (count, duplicates) in output_stats {
-        stats.verified_mums += count;
-        stats.merged_duplicates += duplicates;
-    }
-    timings.output = started.elapsed().as_secs_f64();
-    let started = Instant::now();
-    let parent = output
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let mut result = tempfile::NamedTempFile::new_in(parent)?;
-    for shard in 0..shards {
-        io::copy(
-            &mut File::open(scratch.path().join(format!("output-{shard}.tsv.zst")))?,
-            result.as_file_mut(),
-        )?;
-    }
-    result.as_file_mut().flush()?;
-    let mut mapping_name = output.as_os_str().to_os_string();
-    mapping_name.push(".contigs.tsv.zst");
-    let mut mapping = tempfile::NamedTempFile::new_in(parent)?;
-    {
-        let mut writer =
-            zstd::stream::write::Encoder::new(BufWriter::new(mapping.as_file_mut()), 1)?;
-        writeln!(writer, "genome\tinput\tcontig\tname\tlength")?;
-        for (id, genome) in genomes.iter().enumerate() {
-            for (contig_id, contig) in genome.contigs.iter().enumerate() {
-                writeln!(
-                    writer,
-                    "{id}\t{}\t{contig_id}\t{}\t{}",
-                    genome.input.display(),
-                    contig.name,
-                    contig.len
-                )?;
+    let mumemto_format = index.options.mumemto_format;
+    let binary = index.options.binary;
+    if binary {
+        let mut matches: Vec<VerifiedMatch> = output_shards.into_iter().flatten().collect();
+        let (count, duplicates) = write_verified_bumbl(&mut matches, genomes.len(), output)?;
+        stats.verified_mums = count;
+        stats.merged_duplicates = duplicates;
+        timings.output = started.elapsed().as_secs_f64();
+        let started = Instant::now();
+        write_lengths_file(&lengths_path(output), &genomes)?;
+        timings.finalize = started.elapsed().as_secs_f64();
+    } else {
+        let output_stats = thread::scope(|scope| -> io::Result<Vec<(usize, usize)>> {
+            let mut handles = Vec::new();
+            for (shard, matches) in output_shards.into_iter().enumerate() {
+                let genomes = &genomes;
+                let scratch = scratch.path();
+                handles.push(scope.spawn(move || {
+                    write_output_shard(matches, genomes, scratch, shard, mumemto_format)
+                }));
             }
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join()
+                        .map_err(|_| io::Error::other("output worker panicked"))?
+                })
+                .collect()
+        })?;
+        for (count, duplicates) in output_stats {
+            stats.verified_mums += count;
+            stats.merged_duplicates += duplicates;
         }
-        writer.finish()?.flush()?;
+        timings.output = started.elapsed().as_secs_f64();
+        let started = Instant::now();
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let mut result = tempfile::NamedTempFile::new_in(parent)?;
+        for shard in 0..shards {
+            io::copy(
+                &mut File::open(scratch.path().join(format!("output-{shard}.tsv.zst")))?,
+                result.as_file_mut(),
+            )?;
+        }
+        result.as_file_mut().flush()?;
+        write_lengths_file(&lengths_path(output), &genomes)?;
+        if !mumemto_format {
+            write_contigs_sidecar(output, &genomes)?;
+        }
+        result.persist(output)?;
+        timings.finalize = started.elapsed().as_secs_f64();
     }
-    mapping.persist(PathBuf::from(mapping_name))?;
-    result.persist(output)?;
-    timings.finalize = started.elapsed().as_secs_f64();
     stats.timings = timings;
     eprintln!(
         "[unique_alignment_skips]\t{} seed windows skipped across proto boundaries",
@@ -2102,10 +2185,14 @@ mod tests {
         dna.extend_from_within(1000..3000);
         let options = LocateOptions {
             k: 31,
+            min_length: 31,
+
             m: 15,
             threads: 4,
             chunk_bases: 127,
             forward_only: false,
+            mumemto_format: false,
+            binary: false,
         };
         let mut source = ProtoIndex {
             options,
@@ -2241,10 +2328,13 @@ mod tests {
                     let mut source = ProtoIndex {
                         options: LocateOptions {
                             k,
+                            min_length: k,
                             m: k.min(21),
                             threads: 3,
                             chunk_bases,
                             forward_only,
+                            mumemto_format: false,
+                            binary: false,
                         },
                         patterns: Vec::new(),
                         sequences: PackedSeqVec::default(),
@@ -2316,10 +2406,14 @@ mod tests {
             .collect();
         let options = LocateOptions {
             k: 31,
+            min_length: 31,
+
             m: 21,
             threads: 2,
             chunk_bases: 7,
             forward_only: false,
+            mumemto_format: false,
+            binary: false,
         };
         let mut source = ProtoIndex {
             options: options.clone(),
@@ -2485,10 +2579,13 @@ mod tests {
                     let mut source = ProtoIndex {
                         options: LocateOptions {
                             k,
+                            min_length: k,
                             m: k.min(21),
                             threads: 2,
                             chunk_bases,
                             forward_only,
+                            mumemto_format: false,
+                            binary: false,
                         },
                         patterns: Vec::new(),
                         sequences: PackedSeqVec::default(),
@@ -2531,10 +2628,14 @@ mod tests {
             .collect();
         let options = LocateOptions {
             k: 31,
+            min_length: 31,
+
             m: 21,
             threads: 2,
             chunk_bases: 8192,
             forward_only: false,
+            mumemto_format: false,
+            binary: false,
         };
         let mut source = ProtoIndex {
             options: options.clone(),
@@ -2596,10 +2697,13 @@ mod tests {
                 Some(temp.path()),
                 LocateOptions {
                     k,
+                    min_length: k,
                     m: k.min(21),
                     threads: 4,
                     chunk_bases: 7,
                     forward_only: false,
+                    mumemto_format: false,
+                    binary: false,
                 },
             )?;
             let text = String::from_utf8(zstd::stream::decode_all(File::open(output)?)?).unwrap();
@@ -2623,10 +2727,14 @@ mod tests {
         let mut source = ProtoIndex {
             options: LocateOptions {
                 k: 3,
+                min_length: 3,
+
                 m: 2,
                 threads: 2,
                 chunk_bases: 2,
                 forward_only: false,
+                mumemto_format: false,
+                binary: false,
             },
             patterns: Vec::new(),
             sequences: PackedSeqVec::default(),

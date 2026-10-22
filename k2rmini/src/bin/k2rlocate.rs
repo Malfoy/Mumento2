@@ -11,11 +11,18 @@ struct Args {
     /// GGCAT proto-MUM FASTA
     #[arg(short)]
     patterns: PathBuf,
-    /// Zstd-compressed output TSV, plus <output>.contigs.tsv.zst
+    /// Zstd-compressed MUM output; also writes <prefix>.lengths
     #[arg(short)]
     output: PathBuf,
+    /// Contig-relative 4-col coords (default: mumemto global length/starts/strands)
+    #[arg(long)]
+    contig_coords: bool,
+    /// Seed / dictionary k-mer length
     #[arg(short, default_value_t = 31)]
     k: usize,
+    /// Minimum reported MUM length (default: k)
+    #[arg(short = 'l', long = "min-match-len")]
+    min_match_len: Option<usize>,
     /// Minimizer length, defaults to min(k, 21)
     #[arg(short)]
     m: Option<usize>,
@@ -33,12 +40,15 @@ fn main() -> io::Result<()> {
     let args = Args::parse();
     let options = LocateOptions {
         k: args.k,
+        min_length: args.min_match_len.unwrap_or(args.k),
         m: args.m.unwrap_or(args.k.min(21)),
         threads: args
             .threads
             .unwrap_or_else(|| thread::available_parallelism().map_or(1, usize::from)),
         chunk_bases: args.chunk_bases,
         forward_only: args.forward_only,
+        mumemto_format: !args.contig_coords,
+        binary: false,
     };
     let stats = locate_mums(
         &args.patterns,

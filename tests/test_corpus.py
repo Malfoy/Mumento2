@@ -76,7 +76,8 @@ class CorpusTests(unittest.TestCase):
 
     def invoke(self, case, output, inputs, extra=(), initial=True, fail=False):
         command=[str(BIN),'--ggcat',str(GGCAT),'-j',str(case.get('threads',3)),
-                 '--chunk-bases',str(case.get('chunk_bases',17)),'-m','0.05','-o',str(output)]
+                 '--chunk-bases',str(case.get('chunk_bases',17)),'-m','0.05',
+                 '--contig-coords','-o',str(output)]
         if initial:
             command += ['-k',str(case['k'])]
             if case.get('minimum') is not None: command += ['-N',str(case['minimum'])]
@@ -108,6 +109,15 @@ class CorpusTests(unittest.TestCase):
             self.assertNotIn(key,actual)
             actual[key]=(name,int(length))
         self.assertEqual(actual,expected_map)
+        # Mumemto-format lengths sidecar (prefix from output path).
+        prefix=str(output)
+        for suffix in ('.zst','.tsv','.mums'):
+            if prefix.endswith(suffix):
+                prefix=prefix[:len(prefix)-len(suffix)]
+        lengths=Path(prefix+'.lengths')
+        self.assertTrue(lengths.is_file(),lengths)
+        length_lines=lengths.read_text().splitlines()
+        self.assertEqual(sum(1 for line in length_lines if ' * ' in line),len(genomes))
         return result
 
     def discovery(self,case,directory):

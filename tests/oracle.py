@@ -112,14 +112,14 @@ def expected_identical_contigs(genomes, k, forward_only=False):
 
 
 def verify_output(test, text, genomes, k, minimum, forward_only, expected):
-    """Check structure, coordinates, DNA, strands, uniqueness and completeness."""
-    lines = text.splitlines()
-    test.assertGreaterEqual(len(lines), 2)
-    test.assertTrue(lines[0].startswith('# Coordinates:'))
-    test.assertEqual(lines[1], 'length\tstarts\tstrands\tcontigs')
+    """Check structure, coordinates, DNA, strands, uniqueness and completeness.
+
+    Expects contig-relative 4-col rows with no header (mumento2 --contig-coords).
+    """
+    lines = [line for line in text.splitlines() if line and not line.startswith('#')]
     observed = []
     order = []
-    for row in lines[2:]:
+    for row in lines:
         fields = row.split('\t')
         test.assertEqual(len(fields), 4, row)
         length = int(fields[0])

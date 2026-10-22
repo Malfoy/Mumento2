@@ -25,7 +25,7 @@ class PeriodicTests(unittest.TestCase):
                 inputs.append(path)
             output = directory / 'out.zst'
             process = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-k', str(k),
-                '-j', '3', '-m', '0.1', '-o', str(output), *map(str, inputs)],
+                '-j', '3', '-m', '0.1', '--contig-coords', '-o', str(output), *map(str, inputs)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
             self.assertEqual(process.returncode, 0, process.stderr.decode())
             verify_output(self, zstd.decompress(output.read_bytes()).decode(), genomes,
@@ -80,7 +80,7 @@ class PeriodicTests(unittest.TestCase):
                     inputs.append(path)
                 output = directory / 'out.zst'
                 process = subprocess.run([str(BIN), '--ggcat', str(GGCAT), '-k', str(k),
-                    '-j', '3', '-m', '0.1', '-o', str(output), *map(str, inputs)],
+                    '-j', '3', '-m', '0.1', '--contig-coords', '-o', str(output), *map(str, inputs)],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
                 self.assertEqual(process.returncode, 0, process.stderr.decode())
                 expected = expected_matches(genomes, k)

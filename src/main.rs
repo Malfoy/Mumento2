@@ -22,24 +22,40 @@ struct Args {
     /// UTF-8 file with one genome path per line; relative paths use the list's directory
     #[arg(long)]
     input_list: Option<PathBuf>,
-    /// K-mer length and minimum MUM length
-    #[arg(short, long, required_unless_present = "update")]
+    /// Minimum MUM length (primary knob). Sets discovery seed k = l unless --seed-k
+    /// overrides. Bounds: 3..=64. Completeness is only down to this length.
+    #[arg(short = 'l', long = "min-match-len", required_unless_present_any = ["update", "k"])]
+    min_match_len: Option<usize>,
+    /// Advanced: seed / dictionary k-mer length. Default: same as -l.
+    /// Must satisfy k <= l. Smaller k than -l only discovers then discards short
+    /// survivors (more RAM/CPU, never recovers MUMs shorter than k). Prefer -l alone.
+    #[arg(short, long = "seed-k", visible_alias = "k")]
     k: Option<usize>,
-    /// Minimum number of genomes sharing a MUM (default: all; updates inherit the state)
-    #[arg(short = 'N', long = "minimum-genomes")]
-    minimum_genomes: Option<usize>,
-    /// Save reusable candidate evidence and packed genomes in this directory
-    #[arg(long)]
+    /// Minimum genomes sharing a MUM (default: all). Negative = relative to total
+    /// (e.g. -N -1 means present in all but one), like mumemto -k.
+    #[arg(short = 'N', long = "minimum-genomes", allow_hyphen_values = true)]
+    minimum_genomes: Option<i64>,
+    /// Write updateable merge metadata (packed genomes, protos, evidence) here.
+    /// A later --update against this directory adds assemblies as if re-run on the union.
+    /// Mumento2-only; not compatible with classic mumemto merge files.
+    #[arg(long, alias = "mergeable")]
     state: Option<PathBuf>,
-    /// Add the supplied NEW genomes to an existing state (updated in place by default)
+    /// Add NEW genome FASTAs to an existing --state/--mergeable directory (in place,
+    /// or fork with --state DIR while updating from --update OTHER).
     #[arg(long)]
     update: Option<PathBuf>,
     /// Graph seed inputs (default: up to 16 for stateless all-genome searches, otherwise all)
     #[arg(long)]
     seed_genomes: Option<usize>,
-    /// Zstd-compressed MUM TSV, plus <output>.contigs.tsv.zst
+    /// MUM output path; also writes <prefix>.lengths. With -b, write .bumbl.
     #[arg(short, long)]
     output: PathBuf,
+    /// Write mumemto-compatible .bumbl (global coords). Incompatible with --contig-coords.
+    #[arg(short = 'b', long = "binary")]
+    binary: bool,
+    /// Contig-relative 4-col coords (default: mumemto global length/starts/strands)
+    #[arg(long)]
+    contig_coords: bool,
     #[arg(short = 'j', long)]
     threads: Option<usize>,
     /// GGCAT's suggested scratch-memory budget in GiB
@@ -81,6 +97,27 @@ fn local_ggcat() -> PathBuf {
         }
     }
     PathBuf::from("ggcat")
+}
+
+/// Resolve `-N`: positive absolute count; negative means present in at least G-|N|
+/// genomes (mumemto-style relative threshold). Zero remains invalid.
+fn resolve_minimum_genomes(raw: i64, total: usize) -> Result<usize> {
+    ensure!(total > 0, "at least one genome is required");
+    ensure!(raw != 0, "minimum genome count must be non-zero");
+    if raw > 0 {
+        let n = raw as usize;
+        ensure!(
+            (1..=total).contains(&n),
+            "require 1 <= N <= total genome count ({total})"
+        );
+        return Ok(n);
+    }
+    let omit = (-raw) as usize;
+    ensure!(
+        omit < total,
+        "relative -N must satisfy |N| < genome count ({total})"
+    );
+    Ok(total - omit)
 }
 
 // A sequence present in N of G genomes must occur in at least N-(G-S) of
@@ -139,22 +176,53 @@ fn expand_input_list(args: &mut Args) -> Result<()> {
     Ok(())
 }
 
+fn resolve_binary_output(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    let rewritten = text
+        .strip_suffix(".mums.zst")
+        .or_else(|| text.strip_suffix(".tsv.zst"))
+        .or_else(|| text.strip_suffix(".mums"))
+        .or_else(|| text.strip_suffix(".tsv"))
+        .map(|base| format!("{base}.bumbl"));
+    rewritten.map(PathBuf::from).unwrap_or(path)
+}
+
 fn main() -> Result<()> {
     let total_started = Instant::now();
     let mut args = Args::parse();
     expand_input_list(&mut args)?;
+    ensure!(
+        !(args.binary && args.contig_coords),
+        "binary bumbl output (-b) is incompatible with --contig-coords"
+    );
+    if args.binary {
+        args.output = resolve_binary_output(args.output);
+    }
     let saved = args
         .update
         .as_deref()
         .map(read_state_info)
         .transpose()
         .context("read update state")?;
-    let k = args.k.or_else(|| saved.as_ref().map(|s| s.k)).unwrap();
-    ensure!(k >= 3, "k must be at least 3");
-    let minimum_genomes = args
-        .minimum_genomes
-        .or_else(|| saved.as_ref().and_then(|s| s.minimum_genomes));
+    // Primary knob is -l (reported floor = discovery seed unless --seed-k/--k).
+    // Backward compatible: -k alone still means k = l = that value.
+    let min_length = args
+        .min_match_len
+        .or(args.k)
+        .or_else(|| saved.as_ref().map(|s| s.min_length))
+        .context("require -l / --min-match-len (or legacy -k) unless --update")?;
+    let k = args
+        .k
+        .or_else(|| saved.as_ref().map(|s| s.k))
+        .unwrap_or(min_length);
+    ensure!(min_length > 0, "min-match-len (-l) must be positive");
+    ensure!(k >= 3, "seed k must be at least 3");
+    ensure!(min_length >= k, "min-match-len (-l) must be >= seed k");
     let total_genomes = args.genomes.len() + saved.as_ref().map_or(0, |s| s.genomes);
+    let minimum_genomes = match args.minimum_genomes {
+        Some(raw) => Some(resolve_minimum_genomes(raw, total_genomes)?),
+        None => saved.as_ref().and_then(|s| s.minimum_genomes),
+    };
     if let Some(n) = minimum_genomes {
         ensure!(
             (1..=total_genomes).contains(&n),
@@ -170,6 +238,7 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| thread::available_parallelism().map_or(1, usize::from));
     let locate_options = LocateOptions {
         k,
+        min_length,
         m: args
             .locate_minimizer_length
             .or_else(|| saved.as_ref().map(|s| s.m))
@@ -177,13 +246,20 @@ fn main() -> Result<()> {
         threads,
         chunk_bases: args.chunk_bases,
         forward_only: args.forward_only || saved.as_ref().is_some_and(|s| s.forward_only),
+        mumemto_format: !args.contig_coords,
+        binary: args.binary,
     };
     locate_options.validate()?;
     if let Some(info) = &saved {
         ensure!(
-            (info.k, info.m, info.forward_only)
-                == (k, locate_options.m, locate_options.forward_only),
-            "updates must retain the state's k, minimizer length and strand mode"
+            (info.k, info.min_length, info.m, info.forward_only)
+                == (
+                    k,
+                    locate_options.min_length,
+                    locate_options.m,
+                    locate_options.forward_only
+                ),
+            "updates must retain the state's k, min-match-len, minimizer length and strand mode"
         );
     }
     let mut seen = std::collections::HashSet::new();
@@ -414,6 +490,47 @@ mod tests {
         for s in [0, 11] {
             assert!(seed_plan(10, None, false, Some(s)).is_err());
         }
+    }
+
+    #[test]
+    fn relative_minimum_genomes_matches_mumemto_style() {
+        assert_eq!(resolve_minimum_genomes(3, 5).unwrap(), 3);
+        assert_eq!(resolve_minimum_genomes(-1, 5).unwrap(), 4);
+        assert_eq!(resolve_minimum_genomes(-2, 5).unwrap(), 3);
+        assert!(resolve_minimum_genomes(0, 5).is_err());
+        assert!(resolve_minimum_genomes(-5, 5).is_err());
+        assert!(resolve_minimum_genomes(6, 5).is_err());
+    }
+
+    #[test]
+    fn primary_l_or_legacy_k_is_accepted() {
+        let with_l = Args::try_parse_from(["mumento2", "-l", "40", "-o", "out", "g.fa"]).unwrap();
+        assert_eq!(with_l.min_match_len, Some(40));
+        assert_eq!(with_l.k, None);
+        let with_k = Args::try_parse_from(["mumento2", "-k", "21", "-o", "out", "g.fa"]).unwrap();
+        assert_eq!(with_k.k, Some(21));
+        assert_eq!(with_k.min_match_len, None);
+        let both = Args::try_parse_from([
+            "mumento2", "-l", "40", "-k", "21", "-o", "out", "g.fa",
+        ])
+        .unwrap();
+        assert_eq!((both.min_match_len, both.k), (Some(40), Some(21)));
+    }
+
+    #[test]
+    fn binary_output_rewrites_mums_suffix() {
+        assert_eq!(
+            resolve_binary_output(PathBuf::from("out.mums.zst")),
+            PathBuf::from("out.bumbl")
+        );
+        assert_eq!(
+            resolve_binary_output(PathBuf::from("out.tsv")),
+            PathBuf::from("out.bumbl")
+        );
+        assert_eq!(
+            resolve_binary_output(PathBuf::from("custom.bumbl")),
+            PathBuf::from("custom.bumbl")
+        );
     }
 
     #[test]

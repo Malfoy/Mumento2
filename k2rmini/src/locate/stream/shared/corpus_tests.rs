@@ -23,6 +23,8 @@ struct Case {
     description: String,
     genomes: Vec<Vec<String>>,
     k: usize,
+    #[serde(default)]
+    min_length: Option<usize>,
     minimum: Option<usize>,
     forward_only: bool,
     threads: usize,
@@ -71,13 +73,19 @@ fn all_cases() -> &'static [Case] {
         .unwrap()
     })
 }
+fn case_min_length(c: &Case) -> usize {
+    c.min_length.unwrap_or(c.k)
+}
 fn case_options(c: &Case) -> LocateOptions {
     LocateOptions {
         k: c.k,
+        min_length: case_min_length(c),
         m: c.m.unwrap_or(c.k.min(21)),
         threads: c.threads,
         chunk_bases: c.chunk_bases,
         forward_only: c.forward_only,
+        mumemto_format: false,
+        binary: false,
     }
 }
 fn reverse(s: &[u8]) -> Vec<u8> {
@@ -234,7 +242,7 @@ fn identical_contigs_oracle(c: &Case, genomes: &[Vec<String>]) -> BTreeSet<Key> 
     }
     let mut output = BTreeSet::new();
     for pattern in first.into_iter().collect::<BTreeSet<_>>() {
-        if pattern.len() < c.k {
+        if pattern.len() < case_min_length(c) {
             continue;
         }
         let rc = reverse(pattern.as_bytes());
@@ -272,16 +280,14 @@ fn verify(
 ) -> BTreeSet<Key> {
     let text =
         String::from_utf8(zstd::stream::decode_all(File::open(path).unwrap()).unwrap()).unwrap();
-    let mut lines = text.lines();
-    assert!(lines.next().unwrap().starts_with("# Coordinates:"));
-    assert_eq!(lines.next().unwrap(), "length\tstarts\tstrands\tcontigs");
+    let lines = text.lines().filter(|row| !row.is_empty() && !row.starts_with('#'));
     let mut observed = BTreeSet::new();
     let mut ordering = Vec::new();
     for row in lines {
         let fields: Vec<_> = row.split('\t').collect();
         assert_eq!(fields.len(), 4, "{row}");
         let len = fields[0].parse::<usize>().unwrap();
-        assert!(len >= c.k, "{row}");
+        assert!(len >= case_min_length(c), "{row}");
         let starts: Vec<_> = fields[1].split(',').collect();
         let strands: Vec<_> = fields[2].split(',').collect();
         let contigs: Vec<_> = fields[3].split(',').collect();
@@ -366,7 +372,7 @@ fn verify(
             &normalized,
             minimum.unwrap_or(genomes.len()),
             c.forward_only,
-            c.k,
+            case_min_length(c),
         )
         .into_iter()
         .map(|(s, hits)| {
@@ -564,8 +570,13 @@ fn update(c: &Case, dir: &Path) {
             (genomes.len(), threshold)
         );
         assert_eq!(
-            (info.k, info.m, info.forward_only),
-            (c.k, case_options(c).m, c.forward_only)
+            (
+                info.k,
+                info.min_length,
+                info.m,
+                info.forward_only
+            ),
+            (c.k, case_min_length(c), case_options(c).m, c.forward_only)
         );
         if c.stable_patterns {
             assert_eq!(info.patterns, first_patterns);
@@ -627,6 +638,7 @@ fn failure(c: &Case, dir: &Path) {
         "minimizer_exceeds_k" => options.m = options.k + 1,
         "minimizer_exceeds_word" => {
             options.k = 40;
+            options.min_length = 40;
             options.m = 30;
         }
         "missing_input" => inputs = vec![dir.join("absent.fa")],
@@ -658,7 +670,11 @@ fn failure(c: &Case, dir: &Path) {
                     source = None;
                     dest = Some(state.clone());
                 }
-                "update_changed_k" => options.k = 9,
+                "update_changed_k" => {
+                    options.k = 9;
+                    options.min_length = 9;
+                }
+                "update_changed_min_length" => options.min_length = options.k + 5,
                 "update_changed_minimizer" => options.m = 1,
                 "update_changed_strand" => options.forward_only = true,
                 "update_duplicate_document" => inputs = vec![original[0].clone()],
